@@ -54,3 +54,23 @@
 - Added `Agent.__aenter__()` and `Agent.__aexit__()` so SDK clients can use `async with` for automatic cleanup.
 - Reused the existing `close()` path for context exit so both websocket and HTTP transports are released consistently.
 - Added a regression test for context-managed cleanup and verified with `python3 -m pytest tests/ -q` (54 passed).
+2026-03-19 US-015 _early_replies memory leak fix
+- Added TTL- and size-bounded early reply caching in the SDK so unmatched replies are pruned automatically instead of accumulating forever.
+- Preserved `ask()` early-reply behavior while cleaning stale entries on reply registration and cache insertion.
+- Added regression tests for stale cache eviction and max-size enforcement, then verified with `python3 -m pytest tests/ -q` (56 passed).
+2026-03-19 US-016 ask() polling with exponential backoff
+- Changed reply polling to use exponential backoff starting at 0.5s and capping at 5.0s instead of a fixed 0.1s loop.
+- Kept reply polling behavior intact for `ask()` while significantly reducing request volume during longer waits.
+- Added regression tests for the backoff schedule and polling-based reply resolution, then verified with `python3 -m pytest tests/ -q` (58 passed).
+2026-03-19 US-017 Token invalidation and auto re-registration
+- Wrapped authenticated SDK HTTP calls with 401 handling that clears stale saved credentials, re-registers with the same broker URL and agent name, and retries once.
+- Updated credential storage to replace older entries for the same broker/name pair so refreshed credentials become the canonical saved record.
+- Added a regression test for stale saved-token recovery and verified with `python3 -m pytest tests/ -q` (59 passed).
+2026-03-19 US-018 Agent.connect_or_register() convenience method
+- Added async `Agent.connect_or_register()` to load saved credentials when present or register and persist a fresh agent when none exist.
+- Reused the existing registration path so saved credential writes and metadata handling stay consistent with the rest of the SDK.
+- Added regression tests for both the saved-credential and fresh-registration branches, then verified with `python3 -m pytest tests/ -q` (61 passed).
+2026-03-19 US-019 Daemon webhook httpx client reuse
+- Reworked daemon webhook delivery to reuse a shared `httpx.AsyncClient` instead of creating a new client per forwarded message.
+- Added explicit shared-client shutdown in the daemon runner so webhook connections are released when the daemon exits.
+- Added daemon runtime tests for client reuse and shutdown cleanup, then verified with `python3 -m pytest tests/ -q` (63 passed).

@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from contextlib import suppress
-from typing import Any, Callable, Coroutine
+from collections import OrderedDict
+from typing import Any, Callable, Coroutine, TypeVar
+
+import httpx
 
 from claw_msg.client.connection import Connection
-from claw_msg.client.credentials import find_credentials, store_credentials
+from claw_msg.client.credentials import find_credentials, remove_credentials, store_credentials
 from claw_msg.client.http import HttpClient
+
+T = TypeVar("T")
 
 
 class Agent:
@@ -21,6 +27,11 @@ class Agent:
         await agent.register()
         await agent.send("agent-id-here", "hello!")
     """
+
+    _EARLY_REPLY_TTL_SECONDS = 60.0
+    _EARLY_REPLY_MAX_SIZE = 1000
+    _REPLY_POLL_INITIAL_DELAY_SECONDS = 0.5
+    _REPLY_POLL_MAX_DELAY_SECONDS = 5.0
 
     def __init__(
         self,
@@ -42,7 +53,8 @@ class Agent:
         self._message_handlers: list[Callable[[dict], Coroutine]] = []
         self._listen_task: asyncio.Task[None] | None = None
         self._pending_replies: dict[str, asyncio.Future[dict]] = {}
-        self._early_replies: dict[str, dict] = {}
+        self._early_replies: OrderedDict[str, tuple[float, dict]] = OrderedDict()
+        self._reauth_lock = asyncio.Lock()
 
     @property
     def agent_id(self) -> str | None:
@@ -75,12 +87,27 @@ class Agent:
             token=credentials["token"],
             agent_id=credentials["agent_id"],
         )
-        agent._http = HttpClient(agent._broker_url, agent._token)
+        agent._http = agent._create_http_client(agent._token)
         return agent
+
+    @classmethod
+    async def connect_or_register(
+        cls,
+        broker_url: str,
+        name: str,
+        meta: dict[str, Any] | None = None,
+    ) -> Agent:
+        """Load saved credentials or register and persist a new agent."""
+        try:
+            return cls.from_credentials(broker_url, name)
+        except ValueError:
+            agent = cls(broker_url, name=name, metadata=meta)
+            await agent.register()
+            return agent
 
     async def register(self) -> str:
         """Register this agent with the broker. Returns agent_id."""
-        http = HttpClient(self._broker_url, "")
+        http = self._create_http_client("")
         try:
             result = await http.register(
                 name=self._name,
@@ -91,7 +118,7 @@ class Agent:
             await http.close()
         self._agent_id = result["agent_id"]
         self._token = result["token"]
-        self._http = HttpClient(self._broker_url, self._token)
+        self._http = self._create_http_client(self._token)
 
         store_credentials(self._broker_url, self._agent_id, self._token, self._name)
         return self._agent_id
@@ -112,7 +139,7 @@ class Agent:
             raise RuntimeError("Must register or provide a token before connecting")
         self._ensure_connection()
         self._agent_id = await self._connection.connect()
-        self._http = HttpClient(self._broker_url, self._token)
+        self._http = self._create_http_client(self._token)
 
     async def listen(self, background: bool = False):
         """Start listening for messages (blocking). Auto-reconnects."""
@@ -135,7 +162,14 @@ class Agent:
             await self._connection.send_message(to=to, content=content, content_type=content_type, reply_to=reply_to)
             return None
         else:
-            return await self._get_http().send_message(to=to, content=content, content_type=content_type, reply_to=reply_to)
+            return await self._with_reauth(
+                lambda: self._get_http().send_message(
+                    to=to,
+                    content=content,
+                    content_type=content_type,
+                    reply_to=reply_to,
+                )
+            )
 
     async def ask(
         self,
@@ -145,10 +179,12 @@ class Agent:
         content_type: str = "text/plain",
     ) -> dict:
         """Send a message and wait for a reply that references it via reply_to."""
-        sent_message = await self._get_http().send_message(
-            to=to,
-            content=content,
-            content_type=content_type,
+        sent_message = await self._with_reauth(
+            lambda: self._get_http().send_message(
+                to=to,
+                content=content,
+                content_type=content_type,
+            )
         )
         message_id = sent_message.get("id")
         if not message_id:
@@ -194,47 +230,67 @@ class Agent:
             await self._connection.send_message(room_id=room_id, content=content, content_type=content_type)
             return None
         else:
-            return await self._get_http().send_message(room_id=room_id, content=content, content_type=content_type)
+            return await self._with_reauth(
+                lambda: self._get_http().send_message(
+                    room_id=room_id,
+                    content=content,
+                    content_type=content_type,
+                )
+            )
 
     async def get_messages(self, since: str | None = None, limit: int = 50) -> list[dict]:
         """Fetch message history via HTTP."""
-        return await self._get_http().get_messages(since=since, limit=limit)
+        return await self._with_reauth(
+            lambda: self._get_http().get_messages(since=since, limit=limit)
+        )
 
     async def search_agents(self, name: str | None = None, capability: str | None = None) -> list[dict]:
         """Search for agents."""
-        return await self._get_http().search_agents(name=name, capability=capability)
+        return await self._with_reauth(
+            lambda: self._get_http().search_agents(name=name, capability=capability)
+        )
 
     async def create_room(self, name: str, description: str = "", max_members: int = 50) -> dict:
         """Create a room."""
-        return await self._get_http().create_room(name=name, description=description, max_members=max_members)
+        return await self._with_reauth(
+            lambda: self._get_http().create_room(
+                name=name,
+                description=description,
+                max_members=max_members,
+            )
+        )
 
     async def list_rooms(self) -> list[dict]:
         """List rooms this agent is a member of."""
-        return await self._get_http().list_rooms()
+        return await self._with_reauth(lambda: self._get_http().list_rooms())
 
     async def join_room(self, room_id: str) -> dict:
         """Join a room."""
-        return await self._get_http().join_room(room_id)
+        return await self._with_reauth(lambda: self._get_http().join_room(room_id))
 
     async def leave_room(self, room_id: str) -> dict:
         """Leave a room."""
-        return await self._get_http().leave_room(room_id)
+        return await self._with_reauth(lambda: self._get_http().leave_room(room_id))
 
     async def add_contact(self, peer_id: str, alias: str = "") -> dict:
         """Add a peer to contacts."""
-        return await self._get_http().add_contact(peer_id=peer_id, alias=alias)
+        return await self._with_reauth(
+            lambda: self._get_http().add_contact(peer_id=peer_id, alias=alias)
+        )
 
     async def alias_contact(self, peer_id: str, alias: str) -> dict:
         """Set or update the alias for an existing contact."""
-        return await self._get_http().add_contact(peer_id=peer_id, alias=alias)
+        return await self._with_reauth(
+            lambda: self._get_http().add_contact(peer_id=peer_id, alias=alias)
+        )
 
     async def list_contacts(self) -> list[dict]:
         """List all contacts."""
-        return await self._get_http().list_contacts()
+        return await self._with_reauth(lambda: self._get_http().list_contacts())
 
     async def remove_contact(self, peer_id: str) -> None:
         """Remove a peer from contacts."""
-        await self._get_http().remove_contact(peer_id)
+        await self._with_reauth(lambda: self._get_http().remove_contact(peer_id))
 
     async def close(self):
         """Close connection."""
@@ -262,9 +318,12 @@ class Agent:
                 self._listen_task = None
 
     def _register_pending_reply(self, message_id: str, pending_reply: asyncio.Future[dict]):
+        self._prune_early_replies()
+
         early_reply = self._early_replies.pop(message_id, None)
         if early_reply is not None and not pending_reply.done():
-            pending_reply.set_result(early_reply)
+            _, reply_message = early_reply
+            pending_reply.set_result(reply_message)
             return
 
         self._pending_replies[message_id] = pending_reply
@@ -279,7 +338,13 @@ class Agent:
             pending_reply.set_result(message)
             return True
 
-        self._early_replies.setdefault(reply_to, message)
+        self._prune_early_replies()
+        if reply_to not in self._early_replies:
+            self._early_replies[reply_to] = (
+                self._reply_cache_time() + self._EARLY_REPLY_TTL_SECONDS,
+                message,
+            )
+            self._prune_early_replies()
         return False
 
     async def _wait_for_reply(
@@ -288,6 +353,7 @@ class Agent:
         pending_reply: asyncio.Future[dict],
         since: str | None = None,
     ) -> None:
+        delay = self._REPLY_POLL_INITIAL_DELAY_SECONDS
         while not pending_reply.done():
             messages = await self.get_messages(since=since, limit=200)
             for message in messages:
@@ -298,7 +364,8 @@ class Agent:
             if pending_reply.done():
                 break
 
-            await asyncio.sleep(0.1)
+            await self._sleep_for_reply_poll(delay)
+            delay = min(delay * 2, self._REPLY_POLL_MAX_DELAY_SECONDS)
 
     async def _run_listen_loop(self):
         connection = self._connection
@@ -307,11 +374,63 @@ class Agent:
         finally:
             self._listen_task = None
 
+    async def _with_reauth(self, operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
+        failed_token = self._token
+        try:
+            return await operation()
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 401:
+                raise
+
+        await self._reauthenticate(failed_token)
+        return await operation()
+
+    def _reply_cache_time(self) -> float:
+        return time.monotonic()
+
+    async def _sleep_for_reply_poll(self, delay: float):
+        await asyncio.sleep(delay)
+
+    def _prune_early_replies(self):
+        now = self._reply_cache_time()
+        while self._early_replies:
+            reply_to, (expires_at, _) = next(iter(self._early_replies.items()))
+            if expires_at > now:
+                break
+            self._early_replies.pop(reply_to, None)
+
+        while len(self._early_replies) > self._EARLY_REPLY_MAX_SIZE:
+            self._early_replies.popitem(last=False)
+
+    async def _reauthenticate(self, failed_token: str | None):
+        async with self._reauth_lock:
+            if failed_token is not None and self._token != failed_token:
+                return
+
+            stale_agent_id = self._agent_id
+            if stale_agent_id:
+                remove_credentials(stale_agent_id)
+
+            if self._connection:
+                await self._connection.close()
+                self._connection = None
+
+            if self._http:
+                await self._http.close()
+                self._http = None
+
+            self._token = None
+            self._agent_id = None
+            await self.register()
+
+    def _create_http_client(self, token: str) -> HttpClient:
+        return HttpClient(self._broker_url, token)
+
     def _get_http(self) -> HttpClient:
         if not self._http:
             if not self._token:
                 raise RuntimeError("Must register or provide a token")
-            self._http = HttpClient(self._broker_url, self._token)
+            self._http = self._create_http_client(self._token)
         return self._http
 
     def _ensure_connection(self):

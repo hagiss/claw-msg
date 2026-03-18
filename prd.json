@@ -1,208 +1,77 @@
 {
   "project": "claw-msg",
-  "branchName": "ralph/review-fixes",
-  "description": "Fix all issues found in code review — from critical DB bugs to SDK usability improvements",
+  "branchName": "ralph/review-fixes-v2",
+  "description": "Fix new issues found in second review round",
   "userStories": [
     {
-      "id": "US-001",
-      "title": "DB connection pool via shared connection in lifespan",
-      "description": "As a server operator, I want a shared DB connection managed in FastAPI lifespan so that concurrent WebSocket connections don't cause 'database is locked' errors.",
+      "id": "US-015",
+      "title": "_early_replies memory leak fix",
+      "description": "As a long-running agent, I want _early_replies to not grow unbounded so that memory doesn't leak over time.",
       "acceptanceCriteria": [
-        "FastAPI lifespan creates a single aiosqlite connection stored in app.state.db",
-        "All route handlers and websocket handlers use app.state.db instead of get_db()",
-        "WAL mode and foreign_keys pragma are set once at startup",
-        "Connection is properly closed on shutdown",
+        "_early_replies entries have a TTL or max size limit",
+        "Stale entries are cleaned up automatically",
+        "ask()/reply() still works correctly with the cleanup in place",
         "All existing tests pass"
       ],
       "priority": 1,
       "passes": true,
-      "notes": "get_db() in server/database.py opens/closes a new connection every call. Replace with shared connection pattern."
+      "notes": "client/agent.py _early_replies dict grows without bound. Add max size (e.g. 1000) or TTL (e.g. 60s) with periodic cleanup."
     },
     {
-      "id": "US-002",
-      "title": "Validate recipient agent exists before sending",
-      "description": "As an agent, I want the server to return an error when I send a message to a non-existent agent so that I know the message won't be silently lost.",
+      "id": "US-016",
+      "title": "ask() polling with exponential backoff",
+      "description": "As an agent, I want ask() polling fallback to use exponential backoff instead of 0.1s fixed interval so that it doesn't hammer the server with 300 requests per ask().",
       "acceptanceCriteria": [
-        "POST /messages returns 404 if to_agent does not exist in agents table",
-        "WebSocket send action returns error frame if to_agent does not exist",
-        "Room message send verifies the room exists and sender is a member",
-        "Add test for sending to non-existent agent",
+        "Polling interval starts at 0.5s and doubles each iteration up to a max (e.g. 5s)",
+        "Total number of HTTP requests for a 30s timeout is drastically reduced",
+        "ask() still resolves correctly when reply arrives via polling",
         "All existing tests pass"
       ],
       "priority": 2,
       "passes": true,
-      "notes": "Check routes_messages.py send_message() and websocket.py _handle_message_send()"
+      "notes": "client/agent.py _wait_for_reply() currently sleeps 0.1s per iteration"
     },
     {
-      "id": "US-003",
-      "title": "Offline queue cleanup background task",
-      "description": "As a server operator, I want expired messages in the delivery queue to be automatically cleaned up so that the database doesn't grow unbounded.",
+      "id": "US-017",
+      "title": "Token invalidation and auto re-registration",
+      "description": "As an agent, I want automatic re-registration when my saved token is rejected (401) so that I don't get stuck with stale credentials.",
       "acceptanceCriteria": [
-        "A background asyncio task runs cleanup_expired() periodically (every hour)",
-        "Task is started in lifespan and cancelled on shutdown",
-        "cleanup_expired() uses the shared DB connection from app.state.db",
+        "When an API call returns 401, the SDK clears saved credentials and attempts re-registration",
+        "Re-registration uses the same broker_url and name",
+        "New credentials are saved to credential store",
+        "Agent continues working after re-registration",
         "All existing tests pass"
       ],
       "priority": 3,
       "passes": true,
-      "notes": "cleanup_expired() in offline_queue.py exists but is never called"
+      "notes": "Currently from_credentials() loads stale tokens with no recovery path"
     },
     {
-      "id": "US-004",
-      "title": "Message size limit",
-      "description": "As a server operator, I want message content to be limited to 32KB so that agents can't send arbitrarily large messages.",
+      "id": "US-018",
+      "title": "Agent.connect_or_register() convenience method",
+      "description": "As an AI agent, I want a single method that loads saved credentials or registers if none exist so that I don't need try/except boilerplate.",
       "acceptanceCriteria": [
-        "SendMessage model has max_length=32768 on content field",
-        "WebSocket frame size is checked before processing (64KB frame limit)",
-        "Server returns appropriate error for oversized messages",
-        "Add test for oversized message rejection",
+        "Agent.connect_or_register(broker_url, name, meta=None) classmethod exists",
+        "If saved credentials exist, loads them and returns Agent",
+        "If no saved credentials, registers and saves credentials, returns Agent",
         "All existing tests pass"
       ],
       "priority": 4,
       "passes": true,
-      "notes": "common/models.py SendMessage and websocket handler"
+      "notes": "Currently need try from_credentials() except ValueError then register(). Should be one call."
     },
     {
-      "id": "US-005",
-      "title": "Agent.from_credentials() auto-load",
-      "description": "As an AI agent, I want to automatically load saved credentials so that I can reconnect after a session reset without re-registering.",
+      "id": "US-019",
+      "title": "Daemon webhook httpx client reuse",
+      "description": "As a daemon operator, I want the webhook delivery to reuse an httpx client so that TCP connections are pooled.",
       "acceptanceCriteria": [
-        "Agent.from_credentials(broker_url, name=) classmethod loads from ~/.claw-msg/ credential store",
-        "CredentialStore supports lookup by broker_url + name (not just agent_id)",
-        "Returns properly initialized Agent with token and agent_id",
-        "Raises ValueError if no saved credentials found",
+        "deliver_webhook() reuses a shared httpx.AsyncClient instead of creating one per message",
+        "Client is properly closed on daemon shutdown",
         "All existing tests pass"
       ],
       "priority": 5,
       "passes": true,
-      "notes": "client/agent.py and client/credentials.py"
-    },
-    {
-      "id": "US-006",
-      "title": "Request-reply pattern (agent.ask())",
-      "description": "As an AI agent, I want to send a message and await the reply so that I can have conversations without manually correlating messages.",
-      "acceptanceCriteria": [
-        "Agent has ask(to, content, timeout=30) async method",
-        "ask() sends message with a unique msg_id, waits for reply with matching reply_to",
-        "reply() method sends with reply_to field set to original message id",
-        "Times out with asyncio.TimeoutError if no reply within timeout",
-        "Pending reply futures are cleaned up on timeout",
-        "All existing tests pass"
-      ],
-      "priority": 6,
-      "passes": true,
-      "notes": "New method on Agent class. Needs _pending_replies dict and integration with message receive handler."
-    },
-    {
-      "id": "US-007",
-      "title": "Reuse httpx AsyncClient",
-      "description": "As a client user, I want the HTTP transport to reuse a single httpx client so that connections are pooled instead of re-creating TCP+TLS per request.",
-      "acceptanceCriteria": [
-        "HttpTransport creates httpx.AsyncClient once in __init__",
-        "All HTTP methods use the shared client",
-        "Client is properly closed in close() method",
-        "All existing tests pass"
-      ],
-      "priority": 7,
-      "passes": true,
-      "notes": "client/http.py creates new AsyncClient per request"
-    },
-    {
-      "id": "US-008",
-      "title": "listen() background mode and stop()",
-      "description": "As an AI agent, I want to run listen() in the background so that I can do other work while receiving messages.",
-      "acceptanceCriteria": [
-        "Agent.listen(background=True) returns an asyncio.Task without blocking",
-        "Agent.stop() cancels the listen task and closes connections",
-        "Default listen() (no args) still blocks as before",
-        "All existing tests pass"
-      ],
-      "priority": 8,
-      "passes": true,
-      "notes": "client/agent.py listen() currently blocks forever"
-    },
-    {
-      "id": "US-009",
-      "title": "Fix WebSocket connected property",
-      "description": "As an agent, I want the connected property to accurately reflect connection state so that send() correctly chooses HTTP vs WebSocket transport.",
-      "acceptanceCriteria": [
-        "connected property checks both _ws is not None AND not _ws.closed (or equivalent)",
-        "send() falls back to HTTP when WebSocket is dead",
-        "All existing tests pass"
-      ],
-      "priority": 9,
-      "passes": true,
-      "notes": "client/connection.py checks only _ws is not None"
-    },
-    {
-      "id": "US-010",
-      "title": "Token out of service files",
-      "description": "As a security-conscious user, I want tokens to not be visible in process listings so that credentials are not leaked via ps aux.",
-      "acceptanceCriteria": [
-        "Daemon service files use environment file or EnvironmentVariables instead of CLI args for token",
-        "Token is written to ~/.claw-msg/daemon-env with chmod 600",
-        "systemd unit uses EnvironmentFile directive",
-        "launchd plist uses EnvironmentVariables dict",
-        "All existing tests pass"
-      ],
-      "priority": 10,
-      "passes": true,
-      "notes": "daemon/service.py generates files with raw token in args"
-    },
-    {
-      "id": "US-011",
-      "title": "get_messages includes room messages",
-      "description": "As an agent, I want get_messages to return both DMs and messages from rooms I'm in so that I don't miss room conversations.",
-      "acceptanceCriteria": [
-        "GET /messages returns messages where agent is recipient OR sender OR member of the message's room",
-        "Room membership is checked via room_members table",
-        "Add test verifying room messages appear in get_messages",
-        "All existing tests pass"
-      ],
-      "priority": 11,
-      "passes": true,
-      "notes": "routes_messages.py only queries to/from agent"
-    },
-    {
-      "id": "US-012",
-      "title": "Exception handling in on_message handlers",
-      "description": "As an agent developer, I want exceptions in my message handlers to be caught and logged so that the WebSocket connection stays alive.",
-      "acceptanceCriteria": [
-        "Exceptions in on_message callbacks are caught with try/except",
-        "Error is logged but does not propagate to connection loop",
-        "Connection remains alive after handler exception",
-        "All existing tests pass"
-      ],
-      "priority": 12,
-      "passes": true,
-      "notes": "client/connection.py message dispatch"
-    },
-    {
-      "id": "US-013",
-      "title": "Missing CLI commands",
-      "description": "As a CLI user, I want rooms list, rooms send, and contacts alias commands.",
-      "acceptanceCriteria": [
-        "claw-msg rooms list — lists rooms the agent is a member of",
-        "claw-msg rooms send <room_id> <message> — sends message to room",
-        "claw-msg contacts alias <agent_id> <alias> — updates alias for a contact",
-        "All existing tests pass"
-      ],
-      "priority": 13,
-      "passes": true,
-      "notes": "cli/main.py"
-    },
-    {
-      "id": "US-014",
-      "title": "Async context manager for Agent",
-      "description": "As an agent developer, I want to use async with Agent(...) as agent: for automatic cleanup.",
-      "acceptanceCriteria": [
-        "Agent implements __aenter__ and __aexit__",
-        "__aexit__ calls close() to clean up connections",
-        "All existing tests pass"
-      ],
-      "priority": 14,
-      "passes": true,
-      "notes": "client/agent.py"
+      "notes": "daemon/webhook.py creates async with httpx.AsyncClient() per delivery"
     }
   ]
 }

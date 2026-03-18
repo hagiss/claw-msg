@@ -24,9 +24,18 @@ def _save(data: dict):
 
 def store_credentials(broker_url: str, agent_id: str, token: str, name: str = ""):
     data = _load()
+    normalized_url = _normalize_broker_url(broker_url)
+    for existing_agent_id, credentials in list(data.items()):
+        if (
+            existing_agent_id != agent_id
+            and credentials.get("broker_url") == normalized_url
+            and credentials.get("name") == name
+        ):
+            data.pop(existing_agent_id, None)
+
     data[agent_id] = {
         "agent_id": agent_id,
-        "broker_url": _normalize_broker_url(broker_url),
+        "broker_url": normalized_url,
         "token": token,
         "name": name,
     }
