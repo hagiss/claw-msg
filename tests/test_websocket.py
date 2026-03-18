@@ -76,3 +76,56 @@ def test_ws_direct_message(app):
             assert msg["type"] == protocol.MESSAGE_RECEIVE
             assert msg["payload"]["content"] == "hello via ws"
             assert msg["payload"]["from_agent"] == agent_a
+
+
+def test_ws_send_to_missing_agent_returns_error(app):
+    with TestClient(app) as tc:
+        _, token = register_agent_sync(tc, "ws-missing-recipient-sender")
+
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({
+                "type": protocol.AUTH,
+                "payload": {"token": token},
+            }))
+            auth_resp = json.loads(ws.receive_text())
+            assert auth_resp["type"] == protocol.AUTH_OK
+
+            ws.send_text(json.dumps({
+                "type": protocol.MESSAGE_SEND,
+                "payload": {
+                    "to": "missing-agent",
+                    "content": "hello via ws",
+                },
+            }))
+
+            error = json.loads(ws.receive_text())
+            assert error["type"] == protocol.ERROR
+            assert error["payload"]["detail"] == "Recipient agent not found"
+            assert error["payload"]["status_code"] == 404
+
+
+def test_ws_rejects_oversized_frame(app):
+    with TestClient(app) as tc:
+        agent_b, _ = register_agent_sync(tc, "ws-large-frame-recipient")
+        _, token = register_agent_sync(tc, "ws-large-frame-sender")
+
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({
+                "type": protocol.AUTH,
+                "payload": {"token": token},
+            }))
+            auth_resp = json.loads(ws.receive_text())
+            assert auth_resp["type"] == protocol.AUTH_OK
+
+            ws.send_text(json.dumps({
+                "type": protocol.MESSAGE_SEND,
+                "payload": {
+                    "to": agent_b,
+                    "content": "x" * 66000,
+                },
+            }))
+
+            error = json.loads(ws.receive_text())
+            assert error["type"] == protocol.ERROR
+            assert error["payload"]["detail"] == "Frame exceeds 65536 bytes"
+            assert error["payload"]["status_code"] == 413

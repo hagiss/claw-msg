@@ -30,7 +30,7 @@
         "All existing tests pass"
       ],
       "priority": 2,
-      "passes": false,
+      "passes": true,
       "notes": "Check routes_messages.py send_message() and websocket.py _handle_message_send()"
     },
     {
@@ -44,7 +44,7 @@
         "All existing tests pass"
       ],
       "priority": 3,
-      "passes": false,
+      "passes": true,
       "notes": "cleanup_expired() in offline_queue.py exists but is never called"
     },
     {

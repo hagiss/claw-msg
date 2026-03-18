@@ -2,3 +2,11 @@
 - Moved SQLite connection setup into FastAPI lifespan and stored the shared connection on app.state.db.
 - Refactored server routes, auth, presence, offline queue, and websocket handlers to reuse the shared connection.
 - Updated test fixtures to run against the real lifespan-managed app and verified with `python3 -m pytest tests/ -q` (29 passed).
+2026-03-19 US-002 Validate recipient agent exists before sending
+- Added shared target validation so HTTP and WebSocket message sends reject unknown recipients before persisting messages.
+- Enforced room existence and sender membership checks for room sends.
+- Added regression coverage for missing recipients and invalid room sends, then verified with `python3 -m pytest tests/ -q` (32 passed).
+2026-03-19 US-003 Offline queue cleanup background task
+- Added a lifespan-managed cleanup task that periodically removes expired delivery queue entries using the shared app DB connection.
+- Cancelled and awaited the cleanup task during shutdown to keep teardown clean.
+- Added a lifespan test for automatic expiry cleanup and verified with `python3 -m pytest tests/ -q` (33 passed).

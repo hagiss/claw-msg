@@ -1,5 +1,6 @@
 """Offline message queue — stores messages for offline agents with TTL."""
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 
 import aiosqlite
@@ -58,3 +59,13 @@ async def cleanup_expired(db: aiosqlite.Connection):
     now = datetime.now(timezone.utc).isoformat()
     await db.execute("DELETE FROM delivery_queue WHERE expires_at <= ?", (now,))
     await db.commit()
+
+
+async def run_cleanup_loop(db: aiosqlite.Connection, interval_seconds: float):
+    """Periodically remove expired delivery queue entries."""
+    try:
+        while True:
+            await cleanup_expired(db)
+            await asyncio.sleep(interval_seconds)
+    except asyncio.CancelledError:
+        raise

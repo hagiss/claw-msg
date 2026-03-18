@@ -51,3 +51,59 @@ async def test_send_without_recipient(client):
         json={"content": "no target"},
     )
     assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_send_to_missing_agent_returns_404(client):
+    _, token = await register_agent(client, "sender-missing-recipient")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token),
+        json={"to": "missing-agent", "content": "hello"},
+    )
+
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Recipient agent not found"
+
+
+@pytest.mark.asyncio
+async def test_room_message_requires_existing_room_and_membership(client):
+    _, token_owner = await register_agent(client, "room-owner")
+    _, token_non_member = await register_agent(client, "room-non-member")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_owner),
+        json={"room_id": "missing-room", "content": "hello room"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Room not found"
+
+    create_resp = await client.post(
+        "/rooms/",
+        headers=auth_headers(token_owner),
+        json={"name": "validated-room"},
+    )
+    room_id = create_resp.json()["id"]
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_non_member),
+        json={"room_id": room_id, "content": "hello room"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Sender is not a member of the room"
+
+
+@pytest.mark.asyncio
+async def test_send_message_rejects_oversized_content(client):
+    _, token = await register_agent(client, "oversized-http-sender")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token),
+        json={"to": "missing-agent", "content": "x" * 32769},
+    )
+
+    assert resp.status_code == 422

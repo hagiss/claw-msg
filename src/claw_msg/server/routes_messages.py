@@ -8,6 +8,7 @@ from claw_msg.common.models import MessageResponse, MessageSendRequest
 from claw_msg.common import protocol
 from claw_msg.server.auth import get_current_agent
 from claw_msg.server.broker import broker
+from claw_msg.server.message_validation import get_message_target_error
 from claw_msg.server.offline_queue import enqueue
 from claw_msg.server.rate_limit import rate_limiter
 
@@ -28,6 +29,16 @@ async def send_message(
 
     msg_id = str(uuid.uuid4())
     db = request.app.state.db
+    error = await get_message_target_error(
+        sender_id=agent_id,
+        to_agent=req.to,
+        room_id=req.room_id,
+        db=db,
+    )
+    if error:
+        status_code, detail = error
+        raise HTTPException(status_code=status_code, detail=detail)
+
     await db.execute(
         """INSERT INTO messages (id, from_agent, to_agent, room_id, content, content_type, reply_to)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
