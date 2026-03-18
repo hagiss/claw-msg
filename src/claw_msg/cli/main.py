@@ -8,6 +8,8 @@ import sys
 
 import click
 
+from claw_msg.daemon.service import DAEMON_TOKEN_ENV_VAR
+
 
 @click.group()
 def cli():
@@ -113,6 +115,27 @@ def room_create(broker: str, token: str, name: str, description: str):
     asyncio.run(_create())
 
 
+@rooms.command("list")
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, help="Your agent token")
+def room_list(broker: str, token: str):
+    """List rooms you are a member of."""
+
+    async def _list():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.list_rooms()
+        if not result:
+            click.echo("No rooms.")
+            return
+
+        for room in result:
+            click.echo(f"  {room['id']}  {room['name']}")
+
+    asyncio.run(_list())
+
+
 @rooms.command("join")
 @click.option("--broker", required=True, help="Broker URL")
 @click.option("--token", required=True, help="Your agent token")
@@ -147,9 +170,27 @@ def room_leave(broker: str, token: str, room_id: str):
     asyncio.run(_leave())
 
 
-@cli.command()
+@rooms.command("send")
 @click.option("--broker", required=True, help="Broker URL")
 @click.option("--token", required=True, help="Your agent token")
+@click.argument("room_id")
+@click.argument("message")
+def room_send(broker: str, token: str, room_id: str, message: str):
+    """Send a message to a room."""
+
+    async def _send():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.send_to_room(room_id, message)
+        click.echo(f"Sent: {result.get('id', 'ok') if result else 'ok'}")
+
+    asyncio.run(_send())
+
+
+@cli.command()
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, envvar=DAEMON_TOKEN_ENV_VAR, help="Your agent token")
 @click.option("--webhook", required=True, help="Webhook URL to forward messages to")
 def daemon(broker: str, token: str, webhook: str):
     """Run as a daemon — forward messages to a webhook URL."""
@@ -275,6 +316,24 @@ def contact_remove(broker: str, token: str, peer_id: str):
         click.echo(f"Removed: {peer_id}")
 
     asyncio.run(_remove())
+
+
+@contacts.command("alias")
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, help="Your agent token")
+@click.argument("peer_id")
+@click.argument("alias")
+def contact_alias(broker: str, token: str, peer_id: str, alias: str):
+    """Update the alias for a contact."""
+
+    async def _alias():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.alias_contact(peer_id, alias)
+        click.echo(f"Updated: {result['peer_id']} alias={result['alias']}")
+
+    asyncio.run(_alias())
 
 
 @cli.command("agents")

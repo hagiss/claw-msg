@@ -42,7 +42,14 @@ class Connection:
 
     @property
     def connected(self) -> bool:
-        return self._ws is not None
+        if self._ws is None:
+            return False
+
+        closed = getattr(self._ws, "closed", None)
+        if closed is not None:
+            return not closed
+
+        return getattr(self._ws, "close_code", None) is None
 
     async def connect(self) -> str:
         """Connect, authenticate, and return agent_id."""
@@ -64,7 +71,7 @@ class Connection:
 
     async def send(self, frame: dict):
         """Send a frame over WebSocket."""
-        if self._ws:
+        if self.connected:
             await self._ws.send(json.dumps(frame))
 
     async def send_message(self, to: str | None = None, room_id: str | None = None, content: str = "", content_type: str = "text/plain", reply_to: str | None = None):
@@ -105,7 +112,10 @@ class Connection:
                         if msg_id:
                             await self.send({"type": protocol.MESSAGE_ACK, "payload": {"message_id": msg_id}})
                         if self._on_message:
-                            await self._on_message(frame["payload"])
+                            try:
+                                await self._on_message(frame["payload"])
+                            except Exception:
+                                logger.exception("Message handler failed")
                     elif frame_type == protocol.MESSAGE_ACK:
                         pass  # sent message acknowledged
                     elif frame_type == protocol.ERROR:
@@ -113,6 +123,9 @@ class Connection:
 
             except websockets.exceptions.ConnectionClosed:
                 logger.info("Connection closed, reconnecting in %.1fs", delay)
+            except asyncio.CancelledError:
+                self._running = False
+                raise
             except ConnectionError as e:
                 logger.error("Connection error: %s", e)
             except Exception as e:

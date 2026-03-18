@@ -59,7 +59,7 @@
         "All existing tests pass"
       ],
       "priority": 4,
-      "passes": false,
+      "passes": true,
       "notes": "common/models.py SendMessage and websocket handler"
     },
     {
@@ -74,7 +74,7 @@
         "All existing tests pass"
       ],
       "priority": 5,
-      "passes": false,
+      "passes": true,
       "notes": "client/agent.py and client/credentials.py"
     },
     {
@@ -90,7 +90,7 @@
         "All existing tests pass"
       ],
       "priority": 6,
-      "passes": false,
+      "passes": true,
       "notes": "New method on Agent class. Needs _pending_replies dict and integration with message receive handler."
     },
     {
@@ -104,7 +104,7 @@
         "All existing tests pass"
       ],
       "priority": 7,
-      "passes": false,
+      "passes": true,
       "notes": "client/http.py creates new AsyncClient per request"
     },
     {
@@ -118,7 +118,7 @@
         "All existing tests pass"
       ],
       "priority": 8,
-      "passes": false,
+      "passes": true,
       "notes": "client/agent.py listen() currently blocks forever"
     },
     {
@@ -131,7 +131,7 @@
         "All existing tests pass"
       ],
       "priority": 9,
-      "passes": false,
+      "passes": true,
       "notes": "client/connection.py checks only _ws is not None"
     },
     {
@@ -146,7 +146,7 @@
         "All existing tests pass"
       ],
       "priority": 10,
-      "passes": false,
+      "passes": true,
       "notes": "daemon/service.py generates files with raw token in args"
     },
     {
@@ -160,7 +160,7 @@
         "All existing tests pass"
       ],
       "priority": 11,
-      "passes": false,
+      "passes": true,
       "notes": "routes_messages.py only queries to/from agent"
     },
     {
@@ -174,7 +174,7 @@
         "All existing tests pass"
       ],
       "priority": 12,
-      "passes": false,
+      "passes": true,
       "notes": "client/connection.py message dispatch"
     },
     {
@@ -188,7 +188,7 @@
         "All existing tests pass"
       ],
       "priority": 13,
-      "passes": false,
+      "passes": true,
       "notes": "cli/main.py"
     },
     {
@@ -201,7 +201,7 @@
         "All existing tests pass"
       ],
       "priority": 14,
-      "passes": false,
+      "passes": true,
       "notes": "client/agent.py"
     }
   ]

@@ -10,3 +10,47 @@
 - Added a lifespan-managed cleanup task that periodically removes expired delivery queue entries using the shared app DB connection.
 - Cancelled and awaited the cleanup task during shutdown to keep teardown clean.
 - Added a lifespan test for automatic expiry cleanup and verified with `python3 -m pytest tests/ -q` (33 passed).
+2026-03-19 US-004 Message size limit
+- Added a 32KB max length to the shared message send model so oversized HTTP requests are rejected during validation.
+- Enforced a 64KB WebSocket frame cap before JSON processing and returned explicit errors for oversized frames and oversized message content.
+- Added HTTP and WebSocket regression tests for oversized message rejection and verified with `python3 -m pytest tests/ -q` (35 passed).
+2026-03-19 US-005 Agent.from_credentials() auto-load
+- Extended credential storage with broker URL normalization and lookup by broker URL plus agent name.
+- Added `Agent.from_credentials()` to restore an agent with saved token and agent ID without re-registering.
+- Added SDK regression tests for successful auto-load and missing-credential failures, then verified with `python3 -m pytest tests/ -q` (37 passed).
+2026-03-19 US-006 Request-reply pattern (agent.ask())
+- Added SDK-side pending reply tracking, `Agent.ask()`, and `Agent.reply()` helpers keyed by message `reply_to`.
+- Wired reply resolution into the normal message dispatch path and added HTTP polling as a fallback while waiting for replies.
+- Added SDK tests for successful replies, reply helper behavior, and timeout cleanup, then verified with `python3 -m pytest tests/ -q` (40 passed).
+2026-03-19 US-007 Reuse httpx AsyncClient
+- Refactored `HttpClient` to create one shared `httpx.AsyncClient` per transport instance and route all HTTP methods through it.
+- Added explicit transport cleanup and updated `Agent` cleanup paths to close temporary and persistent HTTP clients.
+- Added a transport regression test to confirm client reuse and close behavior, then verified with `python3 -m pytest tests/ -q` (41 passed).
+2026-03-19 US-008 listen() background mode and stop()
+- Added background listener support so `Agent.listen(background=True)` returns an `asyncio.Task` while the default `listen()` call remains blocking.
+- Added `Agent.stop()` and hardened connection cancellation so background listeners can be cancelled cleanly and transports are closed.
+- Added SDK tests for background listening and blocking listen behavior, then verified with `python3 -m pytest tests/ -q` (44 passed).
+2026-03-19 US-009 Fix WebSocket connected property
+- Updated the websocket connection state check to treat closed websocket objects as disconnected and guarded low-level sends with the same logic.
+- Added regression coverage for the raw connection state check and for `Agent.send()` falling back to HTTP when the websocket transport is dead.
+- Verified with `python3 -m pytest tests/ -q` (46 passed).
+2026-03-19 US-010 Token out of service files
+- Moved daemon token handling out of service `ProgramArguments` into `~/.claw-msg/daemon-env` with `0600` permissions.
+- Updated generated systemd units to use `EnvironmentFile` and launchd plists to use `EnvironmentVariables`, with the CLI daemon command reading the token from the daemon env var.
+- Added service-generation regression tests and verified with `python3 -m pytest tests/ -q` (48 passed).
+2026-03-19 US-011 get_messages includes room messages
+- Expanded the message history query so room members receive room traffic in `GET /messages/` in addition to direct messages.
+- Used `room_members` membership checks directly in the history query and added a regression test covering room members versus outsiders.
+- Verified with `python3 -m pytest tests/ -q` (49 passed).
+2026-03-19 US-012 Exception handling in on_message handlers
+- Isolated SDK message handler exceptions inside the websocket receive loop so one bad callback no longer tears down the connection loop.
+- Logged handler failures explicitly and added a connection-level regression test proving delivery continues after an exception.
+- Verified with `python3 -m pytest tests/ -q` (50 passed).
+2026-03-19 US-013 Missing CLI commands
+- Added the missing `rooms list`, `rooms send`, and `contacts alias` CLI commands on top of the existing room and contact HTTP APIs.
+- Exposed supporting SDK transport helpers for listing rooms and updating contact aliases.
+- Added CLI regression tests with `CliRunner` and verified with `python3 -m pytest tests/ -q` (53 passed).
+2026-03-19 US-014 Async context manager for Agent
+- Added `Agent.__aenter__()` and `Agent.__aexit__()` so SDK clients can use `async with` for automatic cleanup.
+- Reused the existing `close()` path for context exit so both websocket and HTTP transports are released consistently.
+- Added a regression test for context-managed cleanup and verified with `python3 -m pytest tests/ -q` (54 passed).

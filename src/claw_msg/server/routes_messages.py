@@ -98,16 +98,29 @@ async def get_messages(
     if since:
         cursor = await db.execute(
             """SELECT * FROM messages
-               WHERE (to_agent = ? OR from_agent = ?) AND created_at > ?
+               WHERE (
+                   to_agent = ?
+                   OR from_agent = ?
+                   OR EXISTS (
+                       SELECT 1 FROM room_members rm
+                       WHERE rm.room_id = messages.room_id AND rm.agent_id = ?
+                   )
+               ) AND created_at > ?
                ORDER BY created_at DESC LIMIT ?""",
-            (agent_id, agent_id, since, limit),
+            (agent_id, agent_id, agent_id, since, limit),
         )
     else:
         cursor = await db.execute(
             """SELECT * FROM messages
-               WHERE to_agent = ? OR from_agent = ?
+               WHERE
+                   to_agent = ?
+                   OR from_agent = ?
+                   OR EXISTS (
+                       SELECT 1 FROM room_members rm
+                       WHERE rm.room_id = messages.room_id AND rm.agent_id = ?
+                   )
                ORDER BY created_at DESC LIMIT ?""",
-            (agent_id, agent_id, limit),
+            (agent_id, agent_id, agent_id, limit),
         )
     rows = await cursor.fetchall()
 

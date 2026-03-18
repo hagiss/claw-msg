@@ -7,6 +7,10 @@ CREDS_DIR = Path.home() / ".claw-msg"
 CREDS_FILE = CREDS_DIR / "credentials.json"
 
 
+def _normalize_broker_url(broker_url: str) -> str:
+    return broker_url.rstrip("/")
+
+
 def _load() -> dict:
     if CREDS_FILE.exists():
         return json.loads(CREDS_FILE.read_text())
@@ -21,7 +25,8 @@ def _save(data: dict):
 def store_credentials(broker_url: str, agent_id: str, token: str, name: str = ""):
     data = _load()
     data[agent_id] = {
-        "broker_url": broker_url,
+        "agent_id": agent_id,
+        "broker_url": _normalize_broker_url(broker_url),
         "token": token,
         "name": name,
     }
@@ -31,6 +36,14 @@ def store_credentials(broker_url: str, agent_id: str, token: str, name: str = ""
 def get_credentials(agent_id: str) -> dict | None:
     data = _load()
     return data.get(agent_id)
+
+
+def find_credentials(broker_url: str, name: str) -> dict | None:
+    normalized_url = _normalize_broker_url(broker_url)
+    for agent_id, credentials in _load().items():
+        if credentials.get("broker_url") == normalized_url and credentials.get("name") == name:
+            return {"agent_id": credentials.get("agent_id", agent_id), **credentials}
+    return None
 
 
 def list_credentials() -> dict:
