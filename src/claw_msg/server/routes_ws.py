@@ -10,7 +10,6 @@ from claw_msg.common import protocol
 from claw_msg.server.auth import authenticate_token
 from claw_msg.server.broker import broker
 from claw_msg.server.config import HEARTBEAT_INTERVAL
-from claw_msg.server.database import get_db
 from claw_msg.server.offline_queue import enqueue, flush_for_agent, mark_acked
 from claw_msg.server.presence import set_offline, set_online
 from claw_msg.server.rate_limit import rate_limiter
@@ -35,7 +34,8 @@ async def websocket_endpoint(ws: WebSocket):
         return
 
     token = frame.get("payload", {}).get("token", "")
-    agent_id = await authenticate_token(token)
+    db = ws.app.state.db
+    agent_id = await authenticate_token(token, db)
     if not agent_id:
         await ws.send_text(json.dumps({"type": protocol.AUTH_FAIL, "payload": {"detail": "Invalid token"}}))
         await ws.close(code=4003, reason="Authentication failed")
@@ -45,10 +45,10 @@ async def websocket_endpoint(ws: WebSocket):
 
     # ── Register connection ──
     broker.register(agent_id, ws)
-    await set_online(agent_id)
+    await set_online(agent_id, db)
 
     # ── Flush offline queue ──
-    pending = await flush_for_agent(agent_id)
+    pending = await flush_for_agent(agent_id, db)
     for msg in pending:
         envelope = {"type": protocol.MESSAGE_RECEIVE, "payload": msg}
         try:
@@ -87,12 +87,12 @@ async def websocket_endpoint(ws: WebSocket):
                 await ws.send_text(json.dumps({"type": protocol.PONG, "payload": {}}))
 
             elif frame_type == protocol.MESSAGE_SEND:
-                await _handle_message_send(agent_id, frame.get("payload", {}), ws)
+                await _handle_message_send(agent_id, frame.get("payload", {}), ws, db)
 
             elif frame_type == protocol.MESSAGE_ACK:
                 msg_id = frame.get("payload", {}).get("message_id")
                 if msg_id:
-                    await mark_acked(msg_id, agent_id)
+                    await mark_acked(msg_id, agent_id, db)
 
             else:
                 await ws.send_text(json.dumps({
@@ -106,10 +106,10 @@ async def websocket_endpoint(ws: WebSocket):
         pass
     finally:
         broker.unregister(agent_id, ws)
-        await set_offline(agent_id)
+        await set_offline(agent_id, db)
 
 
-async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket):
+async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db):
     """Process an incoming message.send frame."""
     to_agent = payload.get("to")
     room_id = payload.get("room_id")
@@ -134,20 +134,16 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket):
     msg_id = str(uuid.uuid4())
 
     # Persist
-    db = await get_db()
-    try:
-        await db.execute(
-            """INSERT INTO messages (id, from_agent, to_agent, room_id, content, content_type, reply_to)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (msg_id, sender_id, to_agent, room_id, content, content_type, reply_to),
-        )
-        await db.commit()
+    await db.execute(
+        """INSERT INTO messages (id, from_agent, to_agent, room_id, content, content_type, reply_to)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (msg_id, sender_id, to_agent, room_id, content, content_type, reply_to),
+    )
+    await db.commit()
 
-        cursor = await db.execute("SELECT created_at FROM messages WHERE id = ?", (msg_id,))
-        row = await cursor.fetchone()
-        created_at = row["created_at"] if row else ""
-    finally:
-        await db.close()
+    cursor = await db.execute("SELECT created_at FROM messages WHERE id = ?", (msg_id,))
+    row = await cursor.fetchone()
+    created_at = row["created_at"] if row else ""
 
     msg_data = {
         "id": msg_id,
@@ -166,24 +162,20 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket):
     if to_agent:
         delivered = await broker.send_to_agent(to_agent, envelope)
         if not delivered:
-            await enqueue(msg_id, to_agent)
+            await enqueue(msg_id, to_agent, db)
 
     # Room broadcast
     if room_id:
-        db = await get_db()
-        try:
-            cursor = await db.execute(
-                "SELECT agent_id FROM room_members WHERE room_id = ?", (room_id,)
-            )
-            members = [r["agent_id"] for r in await cursor.fetchall()]
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            "SELECT agent_id FROM room_members WHERE room_id = ?", (room_id,)
+        )
+        members = [r["agent_id"] for r in await cursor.fetchall()]
 
         for member_id in members:
             if member_id != sender_id:
                 delivered = await broker.send_to_agent(member_id, envelope)
                 if not delivered:
-                    await enqueue(msg_id, member_id)
+                    await enqueue(msg_id, member_id, db)
 
     # Acknowledge to sender
     ack = {"type": protocol.MESSAGE_ACK, "payload": {"message_id": msg_id, "status": "sent"}}

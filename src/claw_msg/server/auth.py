@@ -4,10 +4,9 @@ import hashlib
 import secrets
 import uuid
 
+import aiosqlite
 import bcrypt
 from fastapi import Depends, HTTPException, Request
-
-from claw_msg.server.database import get_db
 
 
 def generate_token() -> str:
@@ -38,32 +37,20 @@ async def get_current_agent(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = auth_header[len("Bearer "):]
-    lookup = token_lookup_hash(token)
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT id, token_hash FROM agents WHERE token_lookup = ?", (lookup,)
-        )
-        row = await cursor.fetchone()
-        if row and verify_token(token, row["token_hash"]):
-            return row["id"]
-    finally:
-        await db.close()
+    agent_id = await authenticate_token(token, request.app.state.db)
+    if agent_id:
+        return agent_id
 
     raise HTTPException(status_code=401, detail="Invalid token")
 
 
-async def authenticate_token(token: str) -> str | None:
+async def authenticate_token(token: str, db: aiosqlite.Connection) -> str | None:
     """Validate a raw token and return agent_id, or None."""
     lookup = token_lookup_hash(token)
-    db = await get_db()
-    try:
-        cursor = await db.execute(
-            "SELECT id, token_hash FROM agents WHERE token_lookup = ?", (lookup,)
-        )
-        row = await cursor.fetchone()
-        if row and verify_token(token, row["token_hash"]):
-            return row["id"]
-    finally:
-        await db.close()
+    cursor = await db.execute(
+        "SELECT id, token_hash FROM agents WHERE token_lookup = ?", (lookup,)
+    )
+    row = await cursor.fetchone()
+    if row and verify_token(token, row["token_hash"]):
+        return row["id"]
     return None

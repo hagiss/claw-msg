@@ -7,7 +7,7 @@ from claw_msg.server.offline_queue import enqueue, flush_for_agent, mark_acked
 
 
 @pytest.mark.asyncio
-async def test_enqueue_and_flush(client):
+async def test_enqueue_and_flush(client, app):
     agent_a, token_a = await register_agent(client, "offline-sender")
     agent_b, token_b = await register_agent(client, "offline-receiver")
 
@@ -20,16 +20,16 @@ async def test_enqueue_and_flush(client):
     msg_id = resp.json()["id"]
 
     # Manually enqueue (simulating offline scenario)
-    await enqueue(msg_id, agent_b)
+    await enqueue(msg_id, agent_b, app.state.db)
 
     # Flush
-    messages = await flush_for_agent(agent_b)
+    messages = await flush_for_agent(agent_b, app.state.db)
     assert len(messages) >= 1
     assert any(m["content"] == "offline msg" for m in messages)
 
 
 @pytest.mark.asyncio
-async def test_mark_acked(client):
+async def test_mark_acked(client, app):
     agent_a, token_a = await register_agent(client, "ack-sender")
     agent_b, token_b = await register_agent(client, "ack-receiver")
 
@@ -39,11 +39,11 @@ async def test_mark_acked(client):
         json={"to": agent_b, "content": "ack me"},
     )
     msg_id = resp.json()["id"]
-    await enqueue(msg_id, agent_b)
+    await enqueue(msg_id, agent_b, app.state.db)
 
     # Ack
-    await mark_acked(msg_id, agent_b)
+    await mark_acked(msg_id, agent_b, app.state.db)
 
     # Flush should return empty (all acked)
-    messages = await flush_for_agent(agent_b)
+    messages = await flush_for_agent(agent_b, app.state.db)
     assert len(messages) == 0

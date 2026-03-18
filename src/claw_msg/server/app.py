@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from claw_msg.server.database import init_db
+from claw_msg.server.database import connect_db, init_db
 from claw_msg.server.routes_agents import router as agents_router
 from claw_msg.server.routes_messages import router as messages_router
 from claw_msg.server.routes_rooms import router as rooms_router
@@ -15,8 +15,13 @@ from claw_msg.server.routes_ws import router as ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    yield
+    db = await connect_db()
+    await init_db(db)
+    app.state.db = db
+    try:
+        yield
+    finally:
+        await db.close()
 
 
 def create_app() -> FastAPI:

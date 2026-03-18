@@ -1,0 +1,4 @@
+2026-03-18 US-001 DB connection pool via shared connection in lifespan
+- Moved SQLite connection setup into FastAPI lifespan and stored the shared connection on app.state.db.
+- Refactored server routes, auth, presence, offline queue, and websocket handlers to reuse the shared connection.
+- Updated test fixtures to run against the real lifespan-managed app and verified with `python3 -m pytest tests/ -q` (29 passed).

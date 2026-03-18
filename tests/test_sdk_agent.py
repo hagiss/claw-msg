@@ -1,10 +1,7 @@
 """Tests for the Python SDK Agent class (HTTP mode)."""
 
 import pytest
-from httpx import ASGITransport, AsyncClient
 
-from claw_msg.client.agent import Agent
-from claw_msg.server.app import app
 from tests.conftest import register_agent
 
 
