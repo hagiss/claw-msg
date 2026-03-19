@@ -39,21 +39,91 @@ import {
 } from "./runtime.ts";
 import type { CoreConfig, ResolvedClawMsgAccount } from "./types.ts";
 
+type BrokerContact = { peer_id: string; alias?: string; peer_name?: string; peer_status?: string };
+type BrokerAgent = { id: string; name: string };
+
+async function fetchBrokerContacts(account: ResolvedClawMsgAccount): Promise<BrokerContact[] | null> {
+  if (!account.token) {
+    return null;
+  }
+  try {
+    const resp = await fetch(buildBrokerContactsUrl(account.broker), {
+      headers: { authorization: `Bearer ${account.token}` },
+    });
+    if (!resp.ok) {
+      return null;
+    }
+    return (await resp.json()) as BrokerContact[];
+  } catch {
+    return null;
+  }
+}
+
+async function fetchBrokerAgentByName(account: ResolvedClawMsgAccount, name: string): Promise<BrokerAgent | null> {
+  if (!account.token) {
+    return null;
+  }
+  try {
+    const searchUrl = new URL(buildBrokerAgentsSearchUrl(account.broker));
+    searchUrl.searchParams.set("name", name);
+    const resp = await fetch(searchUrl.toString(), {
+      headers: { authorization: `Bearer ${account.token}` },
+    });
+    if (!resp.ok) {
+      return null;
+    }
+    const agents = (await resp.json()) as BrokerAgent[];
+    return agents.find((a) => a.name.toLowerCase() === name.toLowerCase()) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function syncContactsToConfig(params: {
+  account: ResolvedClawMsgAccount;
+  contacts: BrokerContact[];
+  cfg: CoreConfig;
+  runtime: PluginRuntime;
+}): Promise<void> {
+  const { account, contacts, cfg, runtime } = params;
+  const existing = account.contacts ?? {};
+  const fromBroker: Record<string, string> = {};
+  for (const c of contacts) {
+    const name = c.alias?.trim() || c.peer_name?.trim() || c.peer_id;
+    fromBroker[name] = c.peer_id;
+  }
+
+  // Check if config needs updating
+  const needsUpdate = Object.entries(fromBroker).some(
+    ([name, id]) => existing[name] !== id,
+  );
+  if (!needsUpdate) {
+    return;
+  }
+
+  const merged = { ...existing, ...fromBroker };
+  const nextConfig = patchClawMsgAccountConfig({
+    cfg,
+    accountId: account.accountId,
+    patch: { contacts: merged },
+  });
+  await runtime.config.writeConfigFile(nextConfig);
+}
+
 async function ensureAutoContacts(params: {
   cfg: CoreConfig;
   currentAccountId: string;
-  runtime: PluginRuntime;
   log?: { info?: (msg: string) => void; warn?: (msg: string) => void };
-}): Promise<CoreConfig> {
-  const { cfg, currentAccountId, runtime, log } = params;
+}): Promise<void> {
+  const { cfg, currentAccountId, log } = params;
   const allAccountIds = listClawMsgAccountIds(cfg);
   if (allAccountIds.length < 2) {
-    return cfg;
+    return;
   }
 
   const currentAccount = resolveClawMsgAccount({ cfg, accountId: currentAccountId });
   if (!currentAccount.token) {
-    return cfg;
+    return;
   }
 
   // Resolve peer accounts on the same broker
@@ -62,29 +132,10 @@ async function ensureAutoContacts(params: {
     .map((id) => resolveClawMsgAccount({ cfg, accountId: id }))
     .filter((acc) => acc.broker === currentAccount.broker && acc.token);
 
-  if (peerAccounts.length === 0) {
-    return cfg;
-  }
-
-  let nextConfig = cfg;
-  let configChanged = false;
-
   for (const peer of peerAccounts) {
     try {
-      // Look up peer's agent UUID by name
-      const searchUrl = new URL(buildBrokerAgentsSearchUrl(currentAccount.broker));
-      searchUrl.searchParams.set("name", peer.name);
-      const searchResp = await fetch(searchUrl.toString(), {
-        headers: { authorization: `Bearer ${currentAccount.token}` },
-      });
-      if (!searchResp.ok) {
-        continue;
-      }
-      const agents = (await searchResp.json()) as Array<{ id: string; name: string }>;
-      const exactMatch = agents.find(
-        (a) => a.name.toLowerCase() === peer.name.toLowerCase(),
-      );
-      if (!exactMatch) {
+      const agent = await fetchBrokerAgentByName(currentAccount, peer.name);
+      if (!agent) {
         continue;
       }
 
@@ -97,45 +148,20 @@ async function ensureAutoContacts(params: {
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          peer_id: exactMatch.id,
+          peer_id: agent.id,
           alias: peer.name,
         }),
       });
 
       if (addResp.ok) {
-        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name} on broker`);
+        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name}`);
       } else if (addResp.status !== 409) {
-        log?.warn?.(
-          `claw-msg auto-contacts: failed to add ${peer.name} on broker (${addResp.status})`,
-        );
-      }
-
-      // Also add to OpenClaw config contacts (for listPeers/resolveTargets)
-      const existingContacts = currentAccount.contacts ?? {};
-      if (!existingContacts[peer.name] || existingContacts[peer.name] !== exactMatch.id) {
-        nextConfig = patchClawMsgAccountConfig({
-          cfg: nextConfig,
-          accountId: currentAccountId,
-          patch: {
-            contacts: {
-              ...resolveClawMsgAccount({ cfg: nextConfig, accountId: currentAccountId }).contacts,
-              [peer.name]: exactMatch.id,
-            },
-          },
-        });
-        configChanged = true;
-        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name} → ${exactMatch.id} to config`);
+        log?.warn?.(`claw-msg auto-contacts: failed to add ${peer.name} (${addResp.status})`);
       }
     } catch {
       // Silently skip — auto-contacts is best-effort
     }
   }
-
-  if (configChanged) {
-    await runtime.config.writeConfigFile(nextConfig);
-  }
-
-  return nextConfig;
 }
 
 export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
@@ -235,20 +261,30 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
       });
       const entries = new Map<string, { kind: "user"; id: string; name?: string }>();
 
-      for (const [alias, agentId] of Object.entries(account.contacts)) {
-        entries.set(agentId, {
-          kind: "user",
-          id: agentId,
-          name: alias,
-        });
+      // Try broker first (source of truth)
+      const brokerContacts = await fetchBrokerContacts(account);
+      if (brokerContacts) {
+        for (const c of brokerContacts) {
+          const name = c.alias?.trim() || c.peer_name?.trim() || undefined;
+          entries.set(c.peer_id, { kind: "user", id: c.peer_id, name });
+        }
+        // Sync to config cache (fire-and-forget)
+        syncContactsToConfig({
+          account,
+          contacts: brokerContacts,
+          cfg: cfg as CoreConfig,
+          runtime: getClawMsgRuntime(),
+        }).catch(() => {});
+      } else {
+        // Fallback to config cache
+        for (const [alias, agentId] of Object.entries(account.contacts)) {
+          entries.set(agentId, { kind: "user", id: agentId, name: alias });
+        }
       }
 
       for (const entry of account.allowFrom) {
         if (!entries.has(entry)) {
-          entries.set(entry, {
-            kind: "user",
-            id: entry,
-          });
+          entries.set(entry, { kind: "user", id: entry });
         }
       }
 
@@ -263,28 +299,34 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
         accountId,
       });
 
-      return inputs.map((input) => {
+      const results = [];
+      for (const input of inputs) {
         const normalized = normalizeClawMsgTarget(input);
         if (!normalized) {
-          return {
-            input,
-            resolved: false,
-            note: "empty target",
-          };
+          results.push({ input, resolved: false, note: "empty target" });
+          continue;
         }
 
+        // Try config cache first
         const alias = account.contacts[normalized]
           ? normalized
           : Object.keys(account.contacts).find((name) => name.toLowerCase() === normalized.toLowerCase());
-        const id = alias ? account.contacts[alias] : normalized;
+        if (alias) {
+          results.push({ input, resolved: true, id: account.contacts[alias], name: alias });
+          continue;
+        }
 
-        return {
-          input,
-          resolved: true,
-          id,
-          ...(alias ? { name: alias } : {}),
-        };
-      });
+        // Try broker for name resolution
+        const agent = await fetchBrokerAgentByName(account, normalized);
+        if (agent) {
+          results.push({ input, resolved: true, id: agent.id, name: agent.name });
+          continue;
+        }
+
+        // Fallback: use as-is (could be a UUID)
+        results.push({ input, resolved: true, id: normalized });
+      }
+      return results;
     },
   },
   config: {
@@ -399,12 +441,11 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
         log: ctx.log,
       });
 
-      // Auto-add other same-broker accounts as contacts (best-effort)
+      // Auto-add other same-broker accounts as contacts (best-effort, broker only)
       try {
         await ensureAutoContacts({
           cfg: registration.cfg,
           currentAccountId: ctx.accountId,
-          runtime: getClawMsgRuntime(),
           log: ctx.log,
         });
       } catch {
