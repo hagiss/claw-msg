@@ -9,6 +9,7 @@ import {
   waitUntilAbort,
   type ChannelPlugin,
   type ChannelAccountSnapshot,
+  type PluginRuntime,
 } from "openclaw/plugin-sdk";
 import {
   deleteClawMsgAccount,
@@ -41,17 +42,18 @@ import type { CoreConfig, ResolvedClawMsgAccount } from "./types.ts";
 async function ensureAutoContacts(params: {
   cfg: CoreConfig;
   currentAccountId: string;
+  runtime: PluginRuntime;
   log?: { info?: (msg: string) => void; warn?: (msg: string) => void };
-}): Promise<void> {
-  const { cfg, currentAccountId, log } = params;
+}): Promise<CoreConfig> {
+  const { cfg, currentAccountId, runtime, log } = params;
   const allAccountIds = listClawMsgAccountIds(cfg);
   if (allAccountIds.length < 2) {
-    return;
+    return cfg;
   }
 
   const currentAccount = resolveClawMsgAccount({ cfg, accountId: currentAccountId });
   if (!currentAccount.token) {
-    return;
+    return cfg;
   }
 
   // Resolve peer accounts on the same broker
@@ -61,8 +63,11 @@ async function ensureAutoContacts(params: {
     .filter((acc) => acc.broker === currentAccount.broker && acc.token);
 
   if (peerAccounts.length === 0) {
-    return;
+    return cfg;
   }
+
+  let nextConfig = cfg;
+  let configChanged = false;
 
   for (const peer of peerAccounts) {
     try {
@@ -83,7 +88,7 @@ async function ensureAutoContacts(params: {
         continue;
       }
 
-      // Add as contact (409 = already exists, that's fine)
+      // Add as contact on broker (409 = already exists, that's fine)
       const contactsUrl = buildBrokerContactsUrl(currentAccount.broker);
       const addResp = await fetch(contactsUrl, {
         method: "POST",
@@ -98,16 +103,39 @@ async function ensureAutoContacts(params: {
       });
 
       if (addResp.ok) {
-        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name}`);
+        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name} on broker`);
       } else if (addResp.status !== 409) {
         log?.warn?.(
-          `claw-msg auto-contacts: failed to add ${peer.name} (${addResp.status})`,
+          `claw-msg auto-contacts: failed to add ${peer.name} on broker (${addResp.status})`,
         );
+      }
+
+      // Also add to OpenClaw config contacts (for listPeers/resolveTargets)
+      const existingContacts = currentAccount.contacts ?? {};
+      if (!existingContacts[peer.name] || existingContacts[peer.name] !== exactMatch.id) {
+        nextConfig = patchClawMsgAccountConfig({
+          cfg: nextConfig,
+          accountId: currentAccountId,
+          patch: {
+            contacts: {
+              ...resolveClawMsgAccount({ cfg: nextConfig, accountId: currentAccountId }).contacts,
+              [peer.name]: exactMatch.id,
+            },
+          },
+        });
+        configChanged = true;
+        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name} → ${exactMatch.id} to config`);
       }
     } catch {
       // Silently skip — auto-contacts is best-effort
     }
   }
+
+  if (configChanged) {
+    await runtime.config.writeConfigFile(nextConfig);
+  }
+
+  return nextConfig;
 }
 
 export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
@@ -376,6 +404,7 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
         await ensureAutoContacts({
           cfg: registration.cfg,
           currentAccountId: ctx.accountId,
+          runtime: getClawMsgRuntime(),
           log: ctx.log,
         });
       } catch {
