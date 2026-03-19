@@ -5,7 +5,7 @@
   "userStories": [
     {
       "id": "US-020",
-      "title": "Contact metadata \u2014 tags, notes, met_via",
+      "title": "Contact metadata — tags, notes, met_via",
       "description": "As an agent, I want to store tags, notes, and met_via on contacts so that I can remember context about how I know each contact.",
       "acceptanceCriteria": [
         "contacts table has new columns: tags TEXT DEFAULT '[]', notes TEXT DEFAULT '', met_via TEXT DEFAULT ''",
@@ -19,12 +19,12 @@
         "Add test for contact metadata CRUD"
       ],
       "priority": 1,
-      "passes": true,
+      "passes": false,
       "notes": "DB schema: ALTER TABLE contacts ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'; ALTER TABLE contacts ADD COLUMN notes TEXT NOT NULL DEFAULT ''; ALTER TABLE contacts ADD COLUMN met_via TEXT NOT NULL DEFAULT ''; Models in common/models.py, routes in server/routes_contacts.py"
     },
     {
       "id": "US-021",
-      "title": "DM access control \u2014 contacts-only by default",
+      "title": "DM access control — contacts-only by default",
       "description": "As an agent, I want DMs to only be allowed from contacts so that random unknown agents can't message me.",
       "acceptanceCriteria": [
         "agents table has new column: dm_policy TEXT DEFAULT 'contacts_only'",
@@ -39,8 +39,25 @@
         "Add tests for contacts-only DM rejection and open DM"
       ],
       "priority": 2,
-      "passes": true,
+      "passes": false,
       "notes": "Check in routes_messages.py send_message and routes_ws.py. For existing tests, register agents with dm_policy='open' to not break them. New default is 'contacts_only'."
+    },
+    {
+      "id": "US-022",
+      "title": "Mutual contacts add API",
+      "description": "As a Space server, I want to add mutual contacts between two agents in one API call so that matched agents can DM each other after the Space ends.",
+      "acceptanceCriteria": [
+        "POST /contacts/mutual endpoint that takes {agent_a, agent_b, alias_a, alias_b, tags, met_via}",
+        "Adds both directions: A→B and B→A with respective aliases",
+        "Requires application-level auth (is_application=true) OR either agent's auth",
+        "Returns both contact records",
+        "Idempotent — re-calling updates instead of errors",
+        "All existing tests pass",
+        "Add test for mutual contacts creation"
+      ],
+      "priority": 3,
+      "passes": false,
+      "notes": "This is for Space Server to call after matching. Space registers as an application agent (is_application=true). routes_contacts.py"
     }
   ]
 }

@@ -17,7 +17,7 @@ async def test_agent_register_and_send(client):
     agent_b, token_b = await register_agent(client, "sdk-receiver")
 
     # Register sender via SDK (using HTTP directly for test since we need ASGI transport)
-    resp = await client.post("/agents/register", json={"name": "sdk-sender"})
+    resp = await client.post("/agents/register", json={"name": "sdk-sender", "dm_policy": "open"})
     data = resp.json()
     sender_id = data["agent_id"]
     sender_token = data["token"]
@@ -126,7 +126,14 @@ class ReauthingFakeHttpClient:
         self.closed = False
         ReauthingFakeHttpClient.instances.append(self)
 
-    async def register(self, name: str, capabilities: list[str] | None = None, metadata: dict | None = None, is_application: bool = False) -> dict:
+    async def register(
+        self,
+        name: str,
+        capabilities: list[str] | None = None,
+        metadata: dict | None = None,
+        is_application: bool = False,
+        dm_policy: str = "contacts_only",
+    ) -> dict:
         ReauthingFakeHttpClient.register_calls.append({
             "broker_url": self.broker_url,
             "token": self.token,
@@ -134,6 +141,7 @@ class ReauthingFakeHttpClient:
             "capabilities": capabilities or [],
             "metadata": metadata or {},
             "is_application": is_application,
+            "dm_policy": dm_policy,
         })
         return {"agent_id": "fresh-agent-id", "token": "fresh-token"}
 
@@ -217,6 +225,7 @@ async def test_agent_from_credentials_reauthenticates_on_unauthorized(tmp_path, 
         "capabilities": [],
         "metadata": {},
         "is_application": False,
+        "dm_policy": "contacts_only",
     }]
     assert agent.agent_id == "fresh-agent-id"
     assert agent.token == "fresh-token"
@@ -265,6 +274,7 @@ async def test_agent_connect_or_register_registers_and_saves_when_missing(tmp_pa
         "capabilities": [],
         "metadata": {"role": "assistant"},
         "is_application": False,
+        "dm_policy": "contacts_only",
     }]
     assert credentials_mod.find_credentials("http://broker.test", "new-name") == {
         "agent_id": "fresh-agent-id",

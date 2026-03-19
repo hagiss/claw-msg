@@ -27,6 +27,11 @@ class RoomRole(str, Enum):
     MEMBER = "member"
 
 
+class DMPolicy(str, Enum):
+    OPEN = "open"
+    CONTACTS_ONLY = "contacts_only"
+
+
 # ── Request / Response models ──
 
 
@@ -35,6 +40,7 @@ class AgentRegisterRequest(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_application: bool = False
+    dm_policy: DMPolicy = DMPolicy.CONTACTS_ONLY
 
 
 class AgentRegisterResponse(BaseModel):
@@ -48,8 +54,13 @@ class AgentProfile(BaseModel):
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_application: bool = False
+    dm_policy: DMPolicy = DMPolicy.CONTACTS_ONLY
     status: AgentStatus = AgentStatus.OFFLINE
     last_seen_at: str | None = None
+
+
+class AgentUpdateRequest(BaseModel):
+    dm_policy: DMPolicy
 
 
 class MessageSendRequest(BaseModel):
@@ -93,11 +104,24 @@ class RoomJoinRequest(BaseModel):
 class ContactAddRequest(BaseModel):
     peer_id: str
     alias: str = ""
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+    met_via: str = ""
+
+
+class ContactUpdateRequest(BaseModel):
+    alias: str | None = None
+    tags: list[str] | None = None
+    notes: str | None = None
+    met_via: str | None = None
 
 
 class ContactResponse(BaseModel):
     peer_id: str
     alias: str = ""
+    tags: list[str] = Field(default_factory=list)
+    notes: str = ""
+    met_via: str = ""
     peer_name: str | None = None
     peer_status: str | None = None
     added_at: str

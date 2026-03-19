@@ -39,6 +39,7 @@ class Agent:
         name: str = "unnamed-agent",
         capabilities: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        dm_policy: str = "contacts_only",
         token: str | None = None,
         agent_id: str | None = None,
     ):
@@ -46,6 +47,7 @@ class Agent:
         self._name = name
         self._capabilities = capabilities or []
         self._metadata = metadata or {}
+        self._dm_policy = dm_policy
         self._token = token
         self._agent_id = agent_id
         self._connection: Connection | None = None
@@ -96,12 +98,13 @@ class Agent:
         broker_url: str,
         name: str,
         meta: dict[str, Any] | None = None,
+        dm_policy: str = "contacts_only",
     ) -> Agent:
         """Load saved credentials or register and persist a new agent."""
         try:
             return cls.from_credentials(broker_url, name)
         except ValueError:
-            agent = cls(broker_url, name=name, metadata=meta)
+            agent = cls(broker_url, name=name, metadata=meta, dm_policy=dm_policy)
             await agent.register()
             return agent
 
@@ -113,6 +116,7 @@ class Agent:
                 name=self._name,
                 capabilities=self._capabilities,
                 metadata=self._metadata,
+                dm_policy=self._dm_policy,
             )
         finally:
             await http.close()
@@ -272,16 +276,29 @@ class Agent:
         """Leave a room."""
         return await self._with_reauth(lambda: self._get_http().leave_room(room_id))
 
-    async def add_contact(self, peer_id: str, alias: str = "") -> dict:
+    async def add_contact(
+        self,
+        peer_id: str,
+        alias: str = "",
+        tags: list[str] | None = None,
+        notes: str = "",
+        met_via: str = "",
+    ) -> dict:
         """Add a peer to contacts."""
         return await self._with_reauth(
-            lambda: self._get_http().add_contact(peer_id=peer_id, alias=alias)
+            lambda: self._get_http().add_contact(
+                peer_id=peer_id,
+                alias=alias,
+                tags=tags,
+                notes=notes,
+                met_via=met_via,
+            )
         )
 
     async def alias_contact(self, peer_id: str, alias: str) -> dict:
         """Set or update the alias for an existing contact."""
         return await self._with_reauth(
-            lambda: self._get_http().add_contact(peer_id=peer_id, alias=alias)
+            lambda: self._get_http().update_contact(peer_id=peer_id, alias=alias)
         )
 
     async def list_contacts(self) -> list[dict]:

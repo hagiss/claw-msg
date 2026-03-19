@@ -13,7 +13,14 @@ class HttpClient:
         self._headers = {"Authorization": f"Bearer {token}"}
         self._client = httpx.AsyncClient(base_url=self._base)
 
-    async def register(self, name: str, capabilities: list[str] | None = None, metadata: dict | None = None, is_application: bool = False) -> dict:
+    async def register(
+        self,
+        name: str,
+        capabilities: list[str] | None = None,
+        metadata: dict | None = None,
+        is_application: bool = False,
+        dm_policy: str = "contacts_only",
+    ) -> dict:
         resp = await self._client.post(
             "/agents/register",
             json={
@@ -21,6 +28,7 @@ class HttpClient:
                 "capabilities": capabilities or [],
                 "metadata": metadata or {},
                 "is_application": is_application,
+                "dm_policy": dm_policy,
             },
         )
         resp.raise_for_status()
@@ -87,11 +95,51 @@ class HttpClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def add_contact(self, peer_id: str, alias: str = "") -> dict:
+    async def add_contact(
+        self,
+        peer_id: str,
+        alias: str = "",
+        tags: list[str] | None = None,
+        notes: str = "",
+        met_via: str = "",
+    ) -> dict:
         resp = await self._client.post(
             "/contacts/",
             headers=self._headers,
-            json={"peer_id": peer_id, "alias": alias},
+            json={
+                "peer_id": peer_id,
+                "alias": alias,
+                "tags": tags or [],
+                "notes": notes,
+                "met_via": met_via,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    async def update_contact(
+        self,
+        peer_id: str,
+        *,
+        alias: str | None = None,
+        tags: list[str] | None = None,
+        notes: str | None = None,
+        met_via: str | None = None,
+    ) -> dict:
+        payload = {}
+        if alias is not None:
+            payload["alias"] = alias
+        if tags is not None:
+            payload["tags"] = tags
+        if notes is not None:
+            payload["notes"] = notes
+        if met_via is not None:
+            payload["met_via"] = met_via
+
+        resp = await self._client.patch(
+            f"/contacts/{peer_id}",
+            headers=self._headers,
+            json=payload,
         )
         resp.raise_for_status()
         return resp.json()

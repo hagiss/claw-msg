@@ -1,5 +1,7 @@
 """Async SQLite database helpers."""
 
+from __future__ import annotations
+
 import aiosqlite
 
 from claw_msg.server.config import DB_PATH
@@ -15,6 +17,7 @@ CREATE TABLE IF NOT EXISTS agents (
     token_hash TEXT NOT NULL,
     token_lookup TEXT NOT NULL,
     is_application INTEGER NOT NULL DEFAULT 0,
+    dm_policy TEXT NOT NULL DEFAULT 'contacts_only',
     status TEXT NOT NULL DEFAULT 'offline',
     last_seen_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -76,6 +79,9 @@ CREATE TABLE IF NOT EXISTS contacts (
     agent_id TEXT NOT NULL,
     peer_id TEXT NOT NULL,
     alias TEXT NOT NULL DEFAULT '',
+    tags TEXT NOT NULL DEFAULT '[]',
+    notes TEXT NOT NULL DEFAULT '',
+    met_via TEXT NOT NULL DEFAULT '',
     added_at TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (agent_id, peer_id),
     FOREIGN KEY (agent_id) REFERENCES agents(id),
@@ -96,6 +102,24 @@ async def connect_db() -> aiosqlite.Connection:
     return db
 
 
+async def _table_columns(db: aiosqlite.Connection, table: str) -> set[str]:
+    cursor = await db.execute(f"PRAGMA table_info({table})")
+    return {row["name"] for row in await cursor.fetchall()}
+
+
+async def _ensure_column(
+    db: aiosqlite.Connection,
+    table: str,
+    column: str,
+    definition: str,
+):
+    columns = await _table_columns(db, table)
+    if column in columns:
+        return
+
+    await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
 async def init_db(db: aiosqlite.Connection | None = None):
     owns_connection = db is None
     if owns_connection:
@@ -105,6 +129,10 @@ async def init_db(db: aiosqlite.Connection | None = None):
         await db.execute("PRAGMA journal_mode=WAL")
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA)
+        await _ensure_column(db, "agents", "dm_policy", "TEXT NOT NULL DEFAULT 'contacts_only'")
+        await _ensure_column(db, "contacts", "tags", "TEXT NOT NULL DEFAULT '[]'")
+        await _ensure_column(db, "contacts", "notes", "TEXT NOT NULL DEFAULT ''")
+        await _ensure_column(db, "contacts", "met_via", "TEXT NOT NULL DEFAULT ''")
         await db.commit()
     finally:
         if owns_connection:

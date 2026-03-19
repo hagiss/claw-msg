@@ -74,3 +74,11 @@
 - Reworked daemon webhook delivery to reuse a shared `httpx.AsyncClient` instead of creating a new client per forwarded message.
 - Added explicit shared-client shutdown in the daemon runner so webhook connections are released when the daemon exits.
 - Added daemon runtime tests for client reuse and shutdown cleanup, then verified with `python3 -m pytest tests/ -q` (63 passed).
+2026-03-19 US-020 Contact metadata — tags, notes, met_via
+- Added contact metadata fields for tags, notes, and met_via across the shared models, SQLite schema, and contact list/create responses.
+- Added `PATCH /contacts/{peer_id}` plus SDK transport support for updating contact metadata without re-adding the contact.
+- Added regression coverage for contact metadata CRUD, including the SQLite JSON storage format for tags, and verified with `python3 -m pytest tests/ -q` (64 passed).
+2026-03-19 US-021 DM access control — contacts-only by default
+- Added agent-level `dm_policy` support across the shared models, SQLite schema, registration, profile reads, and a new `PATCH /agents/me` update route.
+- Enforced contacts-only direct-message checks in the shared message validation path so both HTTP and WebSocket sends reject unknown senders with the same 403 detail.
+- Updated existing test registration helpers to request `dm_policy='open'`, added coverage for contacts-only rejection and policy updates, and verified with `python3 -m pytest tests/ -q` (68 passed).

@@ -26,17 +26,27 @@ async def client(app):
 # ── Helpers ──
 
 
-async def register_agent(client: AsyncClient, name: str = "TestAgent") -> tuple[str, str]:
+async def register_agent(
+    client: AsyncClient,
+    name: str = "TestAgent",
+    dm_policy: str | None = "open",
+) -> tuple[str, str]:
     """Register an agent and return (agent_id, token)."""
-    resp = await client.post("/agents/register", json={"name": name})
+    payload = {"name": name}
+    if dm_policy is not None:
+        payload["dm_policy"] = dm_policy
+    resp = await client.post("/agents/register", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     return data["agent_id"], data["token"]
 
 
-def register_agent_sync(client, name: str = "TestAgent") -> tuple[str, str]:
+def register_agent_sync(client, name: str = "TestAgent", dm_policy: str | None = "open") -> tuple[str, str]:
     """Register an agent and return (agent_id, token)."""
-    resp = client.post("/agents/register", json={"name": name})
+    payload = {"name": name}
+    if dm_policy is not None:
+        payload["dm_policy"] = dm_policy
+    resp = client.post("/agents/register", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     return data["agent_id"], data["token"]

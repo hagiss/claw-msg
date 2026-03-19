@@ -78,6 +78,35 @@ def test_ws_direct_message(app):
             assert msg["payload"]["from_agent"] == agent_a
 
 
+def test_ws_contacts_only_recipient_rejects_non_contact_sender(app):
+    with TestClient(app) as tc:
+        _, token_a = register_agent_sync(tc, "ws-blocked-sender", dm_policy="open")
+        register_resp = tc.post("/agents/register", json={"name": "ws-contacts-only-recipient"})
+        assert register_resp.status_code == 200
+        agent_b = register_resp.json()["agent_id"]
+
+        with tc.websocket_connect("/ws") as ws_a:
+            ws_a.send_text(json.dumps({
+                "type": protocol.AUTH,
+                "payload": {"token": token_a},
+            }))
+            auth_resp = json.loads(ws_a.receive_text())
+            assert auth_resp["type"] == protocol.AUTH_OK
+
+            ws_a.send_text(json.dumps({
+                "type": protocol.MESSAGE_SEND,
+                "payload": {
+                    "to": agent_b,
+                    "content": "hello via ws",
+                },
+            }))
+
+            error = json.loads(ws_a.receive_text())
+            assert error["type"] == protocol.ERROR
+            assert error["payload"]["detail"] == "Not in contacts. Ask the recipient to add you first."
+            assert error["payload"]["status_code"] == 403
+
+
 def test_ws_send_to_missing_agent_returns_error(app):
     with TestClient(app) as tc:
         _, token = register_agent_sync(tc, "ws-missing-recipient-sender")

@@ -6,8 +6,8 @@ from tests.conftest import auth_headers, register_agent
 
 @pytest.mark.asyncio
 async def test_send_direct_message(client):
-    _, token_a = await register_agent(client, "sender")
-    agent_b, _ = await register_agent(client, "receiver")
+    _, token_a = await register_agent(client, "sender", dm_policy="open")
+    agent_b, _ = await register_agent(client, "receiver", dm_policy="open")
 
     resp = await client.post(
         "/messages/",
@@ -18,6 +18,22 @@ async def test_send_direct_message(client):
     data = resp.json()
     assert data["content"] == "hello from A"
     assert data["to_agent"] == agent_b
+
+
+@pytest.mark.asyncio
+async def test_send_direct_message_rejects_non_contact_for_contacts_only_recipient(client):
+    _, token_a = await register_agent(client, "blocked-sender", dm_policy="open")
+    resp = await client.post("/agents/register", json={"name": "contacts-only-recipient"})
+    assert resp.status_code == 200
+    agent_b = resp.json()["agent_id"]
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": agent_b, "content": "hello from A"},
+    )
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "Not in contacts. Ask the recipient to add you first."
 
 
 @pytest.mark.asyncio
