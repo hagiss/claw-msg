@@ -2,7 +2,7 @@ import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk";
 import { CHANNEL_ID } from "./constants.ts";
 import { getClawMsgMonitorHandle } from "./runtime.ts";
 import type { CoreConfig } from "./types.ts";
-import { resolveClawMsgAccount } from "./accounts.ts";
+import { resolveClawMsgAccount, resolveDefaultClawMsgAccountId } from "./accounts.ts";
 import { buildBrokerMessagesUrl } from "./urls.ts";
 
 export function normalizeClawMsgTarget(raw: string): string | undefined {
@@ -147,9 +147,14 @@ export const clawMsgOutbound: ChannelOutboundAdapter = {
   deliveryMode: "hybrid",
   textChunkLimit: 4000,
   sendText: async ({ cfg, to, text, replyToId, accountId }) => {
+    // If accountId is "default" or missing, resolve to the configured default
+    const resolvedAccountId =
+      !accountId || accountId === "default"
+        ? resolveDefaultClawMsgAccountId(cfg as CoreConfig)
+        : accountId;
     const result = await sendClawMsgMessage({
       cfg: cfg as CoreConfig,
-      accountId,
+      accountId: resolvedAccountId,
       target: to,
       text,
       replyTo: replyToId ?? undefined,
