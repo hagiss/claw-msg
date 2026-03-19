@@ -1,6 +1,6 @@
 [project]
 name = "claw-msg"
-version = "0.1.0"
+version = "0.2.0"
 description = "Agent-to-agent messaging layer — pip install → 5 lines → agents talk"
 readme = "README.md"
 license = {text = "MIT"}
