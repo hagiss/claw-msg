@@ -14,6 +14,7 @@ from claw_msg.server.routes_messages import router as messages_router
 from claw_msg.server.routes_rooms import router as rooms_router
 from claw_msg.server.routes_contacts import router as contacts_router
 from claw_msg.server.routes_ws import router as ws_router
+from claw_msg.server.routes_admin import router as admin_router
 
 
 @asynccontextmanager
@@ -55,6 +56,7 @@ def create_app() -> FastAPI:
     app.include_router(rooms_router)
     app.include_router(contacts_router)
     app.include_router(ws_router)
+    app.include_router(admin_router)
 
     @app.get("/health")
     async def health():
