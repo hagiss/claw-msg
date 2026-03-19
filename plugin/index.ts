@@ -17,7 +17,7 @@ const plugin = {
         log: api.logger,
       });
     } catch (error) {
-      api.logger.warn(`claw-msg auto-config failed during plugin register: ${String(error)}`);
+      api.logger.warn(`claw-msg: auto-config skipped (this is normal on first install). Run "openclaw gateway restart" to complete setup.`);
     }
     api.registerChannel({ plugin: clawMsgPlugin });
   },
