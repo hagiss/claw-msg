@@ -18,6 +18,7 @@ import {
   resolveDefaultClawMsgAccountId,
   setClawMsgAccountEnabled,
 } from "./accounts.ts";
+import { ensureClawMsgAutoConfig } from "./auto-config.ts";
 import { CHANNEL_ID } from "./constants.ts";
 import { clawMsgChannelConfigSchema } from "./config-schema.ts";
 import { handleClawMsgInbound } from "./inbound.ts";
@@ -266,6 +267,15 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
   },
   gateway: {
     startAccount: async (ctx) => {
+      const currentConfig = await ensureClawMsgAutoConfig({
+        runtime: getClawMsgRuntime(),
+        log: ctx.log,
+      });
+      const currentAccount = resolveClawMsgAccount({
+        cfg: currentConfig,
+        accountId: ctx.accountId,
+      });
+
       const updateStatus = (patch: Partial<ChannelAccountSnapshot>): void => {
         ctx.setStatus({
           ...ctx.getStatus(),
@@ -276,14 +286,14 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
 
       updateStatus({
         running: true,
-        baseUrl: ctx.account.broker,
+        baseUrl: currentAccount.broker,
         lastStartAt: Date.now(),
       });
 
       const registration = await ensureClawMsgRegistration({
-        cfg: ctx.cfg as CoreConfig,
+        cfg: currentConfig,
         accountId: ctx.accountId,
-        account: ctx.account,
+        account: currentAccount,
         runtime: getClawMsgRuntime(),
         log: ctx.log,
       });

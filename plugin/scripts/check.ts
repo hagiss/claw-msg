@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import plugin from "../index.ts";
 import { DEFAULT_ACCOUNT_ID } from "openclaw/plugin-sdk";
 import { resolveClawMsgAccount, resolveDefaultClawMsgAccountId } from "../src/accounts.ts";
+import { buildClawMsgAutoConfig } from "../src/auto-config.ts";
 import { clawMsgPlugin } from "../src/channel.ts";
 import { ClawMsgConfigSchema } from "../src/config-schema.ts";
 import { DEFAULT_BROKER_URL } from "../src/constants.ts";
@@ -213,6 +214,82 @@ assert.equal(
   buildBrokerMessagesUrl("https://example.com/claw"),
   "https://example.com/claw/messages/",
 );
+
+const bindingOnlyCfg = {
+  agents: {
+    list: [
+      {
+        id: "ops",
+        identity: {
+          name: "Ops Agent",
+        },
+      },
+    ],
+  },
+  bindings: [
+    {
+      agentId: "ops",
+      match: {
+        channel: "claw-msg",
+        accountId: "ops",
+      },
+    },
+  ],
+};
+
+assert.equal(resolveDefaultClawMsgAccountId(bindingOnlyCfg), "ops");
+assert.deepEqual(clawMsgPlugin.config.listAccountIds(bindingOnlyCfg), ["ops"]);
+
+const bindingDerivedAccount = resolveClawMsgAccount({
+  cfg: bindingOnlyCfg,
+  accountId: "ops",
+});
+assert.equal(bindingDerivedAccount.name, "Ops Agent");
+assert.equal(bindingDerivedAccount.broker, DEFAULT_BROKER_URL);
+assert.equal(bindingDerivedAccount.configured, true);
+
+const autoConfigResult = buildClawMsgAutoConfig({
+  agents: {
+    list: [
+      {
+        id: "main",
+        identity: {
+          name: "Main Agent",
+        },
+      },
+      {
+        id: "ops",
+        name: "Ops Agent",
+      },
+    ],
+  },
+  bindings: [
+    {
+      agentId: "main",
+      match: {
+        channel: "claw-msg",
+      },
+    },
+    {
+      agentId: "ops",
+      match: {
+        channel: "claw-msg",
+        accountId: "ops",
+      },
+    },
+  ],
+});
+
+assert.equal(autoConfigResult.changed, true);
+assert.deepEqual(autoConfigResult.cfg.channels?.["claw-msg"], {
+  broker: DEFAULT_BROKER_URL,
+  name: "Main Agent",
+  accounts: {
+    ops: {
+      name: "Ops Agent",
+    },
+  },
+});
 
 assert.deepEqual(
   parseBrokerFrame(

@@ -4,6 +4,11 @@ import {
   normalizeAccountId,
   setAccountEnabledInConfigSection,
 } from "openclaw/plugin-sdk";
+import {
+  hasClawMsgBindingForAccount,
+  listClawMsgBoundAccounts,
+  resolveClawMsgBindingName,
+} from "./auto-config.ts";
 import { CHANNEL_ID, DEFAULT_BROKER_URL } from "./constants.ts";
 import type {
   ClawMsgAccountConfig,
@@ -26,7 +31,6 @@ function listNamedAccountIds(channelConfig: ClawMsgChannelConfig): string[] {
 function hasBaseAccountConfig(channelConfig: ClawMsgChannelConfig): boolean {
   return Boolean(
     channelConfig.name?.trim() ||
-      channelConfig.broker?.trim() ||
       channelConfig.token?.trim() ||
       channelConfig.dmPolicy ||
       channelConfig.allowFrom?.length ||
@@ -56,11 +60,20 @@ function getBaseAccountConfig(channelConfig: ClawMsgChannelConfig): ClawMsgAccou
   return base;
 }
 
+function listBindingDerivedNamedAccountIds(cfg: CoreConfig): string[] {
+  return listClawMsgBoundAccounts(cfg)
+    .map((entry) => entry.accountId)
+    .filter((accountId) => accountId !== DEFAULT_ACCOUNT_ID);
+}
+
 export function listClawMsgAccountIds(cfg: CoreConfig): string[] {
   const channelConfig = getChannelConfig(cfg);
-  const accountIds = listNamedAccountIds(channelConfig);
+  const accountIds = Array.from(
+    new Set([...listNamedAccountIds(channelConfig), ...listBindingDerivedNamedAccountIds(cfg)]),
+  ).sort();
+  const hasDefaultBinding = hasClawMsgBindingForAccount(cfg, DEFAULT_ACCOUNT_ID);
 
-  if (accountIds.length === 0 || hasBaseAccountConfig(channelConfig)) {
+  if (accountIds.length === 0 || hasBaseAccountConfig(channelConfig) || hasDefaultBinding) {
     return [DEFAULT_ACCOUNT_ID, ...accountIds];
   }
 
@@ -69,14 +82,20 @@ export function listClawMsgAccountIds(cfg: CoreConfig): string[] {
 
 export function resolveDefaultClawMsgAccountId(cfg: CoreConfig): string {
   const channelConfig = getChannelConfig(cfg);
-  const accountIds = listNamedAccountIds(channelConfig);
+  const accountIds = Array.from(
+    new Set([...listNamedAccountIds(channelConfig), ...listBindingDerivedNamedAccountIds(cfg)]),
+  ).sort();
   const preferred = channelConfig.defaultAccount?.trim();
 
   if (preferred && accountIds.includes(normalizeAccountId(preferred))) {
     return normalizeAccountId(preferred);
   }
 
-  if (hasBaseAccountConfig(channelConfig) || accountIds.length === 0) {
+  if (
+    hasBaseAccountConfig(channelConfig) ||
+    hasClawMsgBindingForAccount(cfg, DEFAULT_ACCOUNT_ID) ||
+    accountIds.length === 0
+  ) {
     return DEFAULT_ACCOUNT_ID;
   }
 
@@ -113,14 +132,17 @@ export function resolveClawMsgAccount(params: {
   );
   const config = resolveClawMsgAccountConfig({ cfg, accountId: resolvedAccountId });
   const token = config.token?.trim() || undefined;
+  const bindingName = resolveClawMsgBindingName(cfg, resolvedAccountId);
+  const bindingConfigured = hasClawMsgBindingForAccount(cfg, resolvedAccountId);
 
   return {
     accountId: resolvedAccountId,
     name:
       config.name?.trim() ||
+      bindingName ||
       (resolvedAccountId === DEFAULT_ACCOUNT_ID ? CHANNEL_ID : resolvedAccountId),
     enabled: config.enabled ?? true,
-    configured: Boolean(token),
+    configured: Boolean(token || bindingConfigured),
     broker: config.broker?.trim() || DEFAULT_BROKER_URL,
     token,
     dmPolicy: config.dmPolicy ?? "open",
