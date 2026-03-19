@@ -1,24 +1,60 @@
 # claw-msg
 
-Agent-to-agent messaging layer. `pip install → 5 lines → agents talk`.
+Agent-to-agent messaging layer. Broker + SDK + OpenClaw plugin.
+
+## Install
+
+```bash
+# Broker & CLI (Python)
+pip install claw-msg
+
+# OpenClaw plugin (npm)
+openclaw plugins install claw-msg
+```
 
 ## Quick Start
 
+### 1. Start the broker
+
 ```bash
-pip install -e .
+claw-msg serve --port 8443
 
-# Start the broker
-claw-msg serve --port 8000
+# With admin API enabled
+CLAW_MSG_ADMIN_KEY=your-secret-key claw-msg serve --port 8443
+```
 
-# Register agents (in separate terminals)
-claw-msg register --name agent-a --broker http://localhost:8000
-claw-msg register --name agent-b --broker http://localhost:8000
+### 2. Register agents
 
-# Send a message
-claw-msg send --to <agent-b-id> --broker http://localhost:8000 --token <token-a> "hello!"
+```bash
+claw-msg register --name alice --broker http://localhost:8443
+# → agent_id: xxx, token: yyy
 
-# Listen for messages
-claw-msg listen --broker http://localhost:8000 --token <token-b>
+claw-msg register --name bob --broker http://localhost:8443
+```
+
+Agent names are **unique** — re-registering with the same name reuses the existing agent and refreshes the token.
+
+### 3. Send messages
+
+```bash
+# By name (recommended)
+claw-msg send --to alice --broker http://localhost:8443 --token <bob-token> "hello!"
+
+# By UUID (also works)
+claw-msg send --to <alice-uuid> --broker http://localhost:8443 --token <bob-token> "hello!"
+```
+
+### 4. Manage contacts
+
+```bash
+# Add by name
+claw-msg contacts add --broker http://localhost:8443 --token <alice-token> --peer-name bob
+
+# Add by UUID
+claw-msg contacts add --broker http://localhost:8443 --token <alice-token> --peer-id <bob-uuid>
+
+# List contacts
+claw-msg contacts list --broker http://localhost:8443 --token <alice-token>
 ```
 
 ## SDK Usage
@@ -28,35 +64,95 @@ from claw_msg import Agent
 import asyncio
 
 async def main():
-    agent = Agent("http://localhost:8000", name="my-agent")
+    agent = Agent("http://localhost:8443", name="my-agent")
     await agent.register()
-    print(f"registered: {agent.agent_id}")
 
-    # Send a direct message
-    await agent.send("<other-agent-id>", "hello!")
+    # Send by name
+    await agent.send("other-agent", "hello!")
 
-    # Create and use rooms
+    # Rooms
     room = await agent.create_room("general")
     await agent.send_to_room(room["id"], "hello room!")
 
 asyncio.run(main())
 ```
 
+## OpenClaw Plugin
+
+The claw-msg plugin adds agent-to-agent messaging as a channel in OpenClaw.
+
+### Setup
+
+```bash
+# Install plugin
+openclaw plugins install claw-msg
+
+# Configure broker URL
+openclaw config set channels.claw-msg.broker https://your-broker:8443
+
+# Bind agents
+openclaw agents bind --agent main --bind claw-msg:alice
+openclaw agents bind --agent poly --bind claw-msg:bob
+
+# Restart gateway
+openclaw gateway restart
+```
+
+The plugin automatically:
+- Registers agents with the broker on startup
+- Adds same-gateway agents as contacts
+- Routes messages to the correct agent session
+- Resolves names via broker API (broker is source of truth, config is cache)
+
+### Sending messages
+
+From any OpenClaw agent:
+```
+message(channel: "claw-msg", target: "bob", message: "hello!")
+```
+
 ## Features
 
-- **WebSocket real-time messaging** with auto-reconnect
+- **Unique agent names** — register by name, send by name
+- **Name-based routing** — `to: "alice"` resolves to UUID automatically
+- **WebSocket real-time** with auto-reconnect
 - **HTTP polling fallback** for stateless agents
+- **Offline queue** with 7-day TTL, at-least-once delivery
+- **Contacts & DM policy** — `contacts_only` (default) or `open`
+- **Admin API** — manage contacts on behalf of agents (for apps like tikki-space)
 - **Rooms** for group messaging
-- **Offline queue** with 7-day TTL and at-least-once delivery
 - **Agent discovery** by name/capabilities
 - **Rate limiting** (60 msg/min token bucket)
 - **Presence tracking** (online/offline/last_seen)
-- **CLI** for all operations
-- **Daemon mode** with webhook forwarding + systemd/launchd service generation
+- **Daemon mode** with webhook forwarding + systemd/launchd service
+- **OpenClaw plugin** — native channel integration
+
+## Admin API
+
+For application agents (like tikki-space) that need to manage contacts on behalf of other agents:
+
+```bash
+# Set admin key
+export CLAW_MSG_ADMIN_KEY=your-secret-key
+
+# Add contact on behalf of an agent
+curl -X POST http://localhost:8443/admin/contacts/<agent-id> \
+  -H "X-Admin-Key: $CLAW_MSG_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"peer_id": "<peer-uuid>", "alias": "alice", "met_via": "tikki-space:abc"}'
+
+# Bulk add
+curl -X POST http://localhost:8443/admin/contacts/bulk \
+  -H "X-Admin-Key: $CLAW_MSG_ADMIN_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"pairs": [{"agent_id": "...", "peer_id": "...", "alias": "..."}]}'
+
+# Remove contact
+curl -X DELETE http://localhost:8443/admin/contacts/<agent-id>/<peer-id> \
+  -H "X-Admin-Key: $CLAW_MSG_ADMIN_KEY"
+```
 
 ## Architecture
-
-Same package provides both **broker** (server) and **SDK** (client):
 
 ```
 ┌──────────┐  WebSocket   ┌──────────┐  WebSocket   ┌──────────┐
@@ -64,11 +160,30 @@ Same package provides both **broker** (server) and **SDK** (client):
 └──────────┘              └──────────┘              └──────────┘
                                │
                           SQLite + WAL
+                               │
+                    ┌──────────────────┐
+                    │  tikki-space     │
+                    │  (admin API)     │
+                    └──────────────────┘
 ```
+
+- **Broker**: Central relay server (FastAPI + WebSocket + SQLite)
+- **SDK**: Python client (`claw_msg.Agent`)
+- **CLI**: `claw-msg` command for all operations
+- **Plugin**: OpenClaw channel integration (TypeScript, npm)
 
 ## Development
 
 ```bash
+# Install dev dependencies
 pip install -e ".[dev]"
+
+# Run tests (91 tests)
 pytest tests/ -v
 ```
+
+## Links
+
+- **PyPI**: https://pypi.org/project/claw-msg/
+- **npm**: https://www.npmjs.com/package/claw-msg
+- **GitHub**: https://github.com/hagiss/claw-msg
