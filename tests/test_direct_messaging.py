@@ -113,6 +113,65 @@ async def test_room_message_requires_existing_room_and_membership(client):
 
 
 @pytest.mark.asyncio
+async def test_send_message_by_name(client):
+    _, token_a = await register_agent(client, "name-sender", dm_policy="open")
+    agent_b, _ = await register_agent(client, "name-receiver", dm_policy="open")
+
+    # Send using the name instead of UUID.
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": "name-receiver", "content": "hello by name"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["content"] == "hello by name"
+    # The resolved to_agent should be the UUID.
+    assert data["to_agent"] == agent_b
+
+
+@pytest.mark.asyncio
+async def test_send_message_by_uuid_still_works(client):
+    _, token_a = await register_agent(client, "uuid-sender", dm_policy="open")
+    agent_b, _ = await register_agent(client, "uuid-receiver", dm_policy="open")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": agent_b, "content": "hello by uuid"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["to_agent"] == agent_b
+
+
+@pytest.mark.asyncio
+async def test_send_message_to_nonexistent_name(client):
+    _, token = await register_agent(client, "sender-no-target")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token),
+        json={"to": "ghost-agent", "content": "hello"},
+    )
+    assert resp.status_code == 404
+    assert resp.json()["detail"] == "Recipient agent not found"
+
+
+@pytest.mark.asyncio
+async def test_send_message_by_name_case_insensitive(client):
+    _, token_a = await register_agent(client, "ci-sender", dm_policy="open")
+    agent_b, _ = await register_agent(client, "CITarget", dm_policy="open")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": "citarget", "content": "case insensitive"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["to_agent"] == agent_b
+
+
+@pytest.mark.asyncio
 async def test_send_message_rejects_oversized_content(client):
     _, token = await register_agent(client, "oversized-http-sender")
 

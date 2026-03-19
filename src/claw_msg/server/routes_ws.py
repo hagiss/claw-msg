@@ -12,7 +12,7 @@ from claw_msg.common.models import MAX_MESSAGE_CONTENT_LENGTH, MessageSendReques
 from claw_msg.server.auth import authenticate_token
 from claw_msg.server.broker import broker
 from claw_msg.server.config import HEARTBEAT_INTERVAL
-from claw_msg.server.message_validation import get_message_target_error
+from claw_msg.server.message_validation import get_message_target_error, resolve_agent_target
 from claw_msg.server.offline_queue import enqueue, flush_for_agent, mark_acked
 from claw_msg.server.presence import set_offline, set_online
 from claw_msg.server.rate_limit import rate_limiter
@@ -148,13 +148,21 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db)
         await _send_error(ws, "Must specify 'to' or 'room_id'")
         return
 
+    # Resolve name-based target to UUID.
+    resolved_to = None
+    if request.to:
+        resolved_to = await resolve_agent_target(request.to, db)
+        if resolved_to is None:
+            await _send_error(ws, "Recipient agent not found", status_code=404)
+            return
+
     if not rate_limiter.allow(sender_id):
         await _send_error(ws, "Rate limit exceeded", status_code=429)
         return
 
     error = await get_message_target_error(
         sender_id=sender_id,
-        to_agent=request.to,
+        to_agent=resolved_to,
         room_id=request.room_id,
         db=db,
     )
@@ -172,7 +180,7 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db)
         (
             msg_id,
             sender_id,
-            request.to,
+            resolved_to,
             request.room_id,
             request.content,
             request.content_type,
@@ -188,7 +196,7 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db)
     msg_data = {
         "id": msg_id,
         "from_agent": sender_id,
-        "to_agent": request.to,
+        "to_agent": resolved_to,
         "room_id": request.room_id,
         "content": request.content,
         "content_type": request.content_type,
@@ -199,10 +207,10 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db)
     envelope = {"type": protocol.MESSAGE_RECEIVE, "payload": msg_data}
 
     # Direct message
-    if request.to:
-        delivered = await broker.send_to_agent(request.to, envelope)
+    if resolved_to:
+        delivered = await broker.send_to_agent(resolved_to, envelope)
         if not delivered:
-            await enqueue(msg_id, request.to, db)
+            await enqueue(msg_id, resolved_to, db)
 
     # Room broadcast
     if request.room_id:

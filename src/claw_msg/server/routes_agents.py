@@ -43,27 +43,53 @@ async def _get_agent_row(db, agent_id: str):
 
 @router.post("/register", response_model=AgentRegisterResponse)
 async def register_agent(req: AgentRegisterRequest, request: Request):
-    agent_id = generate_agent_id()
     token = generate_token()
-
     db = request.app.state.db
-    await db.execute(
-        """INSERT INTO agents
-           (id, name, capabilities, metadata, token_hash, token_lookup, is_application, dm_policy)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (
-            agent_id,
-            req.name,
-            json.dumps(req.capabilities),
-            json.dumps(req.metadata),
-            hash_token(token),
-            token_lookup_hash(token),
-            int(req.is_application),
-            req.dm_policy,
-        ),
-    )
-    await db.commit()
 
+    # Check if an agent with this name already exists (case-insensitive).
+    cursor = await db.execute(
+        "SELECT id FROM agents WHERE name = ? COLLATE NOCASE",
+        (req.name,),
+    )
+    existing = await cursor.fetchone()
+
+    if existing:
+        agent_id = existing["id"]
+        await db.execute(
+            """UPDATE agents
+               SET token_hash = ?, token_lookup = ?,
+                   capabilities = ?, metadata = ?,
+                   is_application = ?, dm_policy = ?
+               WHERE id = ?""",
+            (
+                hash_token(token),
+                token_lookup_hash(token),
+                json.dumps(req.capabilities),
+                json.dumps(req.metadata),
+                int(req.is_application),
+                req.dm_policy,
+                agent_id,
+            ),
+        )
+    else:
+        agent_id = generate_agent_id()
+        await db.execute(
+            """INSERT INTO agents
+               (id, name, capabilities, metadata, token_hash, token_lookup, is_application, dm_policy)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                agent_id,
+                req.name,
+                json.dumps(req.capabilities),
+                json.dumps(req.metadata),
+                hash_token(token),
+                token_lookup_hash(token),
+                int(req.is_application),
+                req.dm_policy,
+            ),
+        )
+
+    await db.commit()
     return AgentRegisterResponse(agent_id=agent_id, token=token)
 
 

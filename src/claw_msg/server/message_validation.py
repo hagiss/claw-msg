@@ -13,6 +13,33 @@ if TYPE_CHECKING:
 DM_CONTACTS_ONLY_ERROR = "Not in contacts. Ask the recipient to add you first."
 
 
+async def resolve_agent_target(
+    identifier: str,
+    db: "aiosqlite.Connection",
+) -> str | None:
+    """Resolve an agent identifier (UUID or name) to a UUID.
+
+    Returns the agent UUID, or None if not found.
+    """
+    # Try by ID first.
+    cursor = await db.execute("SELECT id FROM agents WHERE id = ?", (identifier,))
+    row = await cursor.fetchone()
+    if row:
+        return row["id"]
+
+    # Fallback: try by name (case-insensitive).
+    cursor = await db.execute(
+        "SELECT id FROM agents WHERE name = ? COLLATE NOCASE",
+        (identifier,),
+    )
+    rows = await cursor.fetchall()
+    if len(rows) == 1:
+        return rows[0]["id"]
+
+    # 0 or multiple matches -> not found / ambiguous
+    return None
+
+
 async def get_message_target_error(
     *,
     sender_id: str,
@@ -22,7 +49,9 @@ async def get_message_target_error(
 ) -> tuple[int, str] | None:
     """Return an HTTP-like error tuple when a message target is invalid."""
     if to_agent:
-        cursor = await db.execute("SELECT dm_policy FROM agents WHERE id = ?", (to_agent,))
+        cursor = await db.execute(
+            "SELECT id, dm_policy FROM agents WHERE id = ?", (to_agent,)
+        )
         recipient = await cursor.fetchone()
         if recipient is None:
             return 404, "Recipient agent not found"

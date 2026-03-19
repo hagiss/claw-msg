@@ -69,6 +69,42 @@ async def test_update_dm_policy(client):
 
 
 @pytest.mark.asyncio
+async def test_reregister_same_name_returns_same_agent_id(client):
+    agent_id_1, token_1 = await register_agent(client, "reuse-me")
+    agent_id_2, token_2 = await register_agent(client, "reuse-me")
+
+    assert agent_id_1 == agent_id_2
+    assert token_1 != token_2
+
+    # New token works.
+    resp = await client.get("/agents/me", headers=auth_headers(token_2))
+    assert resp.status_code == 200
+    assert resp.json()["id"] == agent_id_1
+
+
+@pytest.mark.asyncio
+async def test_old_token_invalidated_after_reregister(client):
+    _, token_old = await register_agent(client, "rotate-me")
+    _, token_new = await register_agent(client, "rotate-me")
+
+    # Old token must fail.
+    resp = await client.get("/agents/me", headers=auth_headers(token_old))
+    assert resp.status_code == 401
+
+    # New token works.
+    resp = await client.get("/agents/me", headers=auth_headers(token_new))
+    assert resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_reregister_case_insensitive(client):
+    agent_id_1, _ = await register_agent(client, "CaseName")
+    agent_id_2, _ = await register_agent(client, "casename")
+
+    assert agent_id_1 == agent_id_2
+
+
+@pytest.mark.asyncio
 async def test_invalid_token(client):
     resp = await client.get("/agents/me", headers=auth_headers("invalid-token"))
     assert resp.status_code == 401

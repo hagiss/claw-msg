@@ -8,7 +8,7 @@ from claw_msg.common.models import MessageResponse, MessageSendRequest
 from claw_msg.common import protocol
 from claw_msg.server.auth import get_current_agent
 from claw_msg.server.broker import broker
-from claw_msg.server.message_validation import get_message_target_error
+from claw_msg.server.message_validation import get_message_target_error, resolve_agent_target
 from claw_msg.server.offline_queue import enqueue
 from claw_msg.server.rate_limit import rate_limiter
 
@@ -24,14 +24,22 @@ async def send_message(
     if not req.to and not req.room_id:
         raise HTTPException(status_code=400, detail="Must specify 'to' or 'room_id'")
 
+    db = request.app.state.db
+
+    # Resolve name-based target to UUID.
+    resolved_to = None
+    if req.to:
+        resolved_to = await resolve_agent_target(req.to, db)
+        if resolved_to is None:
+            raise HTTPException(status_code=404, detail="Recipient agent not found")
+
     if not rate_limiter.allow(agent_id):
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
     msg_id = str(uuid.uuid4())
-    db = request.app.state.db
     error = await get_message_target_error(
         sender_id=agent_id,
-        to_agent=req.to,
+        to_agent=resolved_to,
         room_id=req.room_id,
         db=db,
     )
@@ -42,14 +50,14 @@ async def send_message(
     await db.execute(
         """INSERT INTO messages (id, from_agent, to_agent, room_id, content, content_type, reply_to)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (msg_id, agent_id, req.to, req.room_id, req.content, req.content_type, req.reply_to),
+        (msg_id, agent_id, resolved_to, req.room_id, req.content, req.content_type, req.reply_to),
     )
     await db.commit()
 
     msg_data = {
         "id": msg_id,
         "from_agent": agent_id,
-        "to_agent": req.to,
+        "to_agent": resolved_to,
         "room_id": req.room_id,
         "content": req.content,
         "content_type": req.content_type,
@@ -64,11 +72,11 @@ async def send_message(
         msg_data["created_at"] = row["created_at"]
 
     # Direct message delivery
-    if req.to:
+    if resolved_to:
         envelope = {"type": protocol.MESSAGE_RECEIVE, "payload": msg_data}
-        delivered = await broker.send_to_agent(req.to, envelope)
+        delivered = await broker.send_to_agent(resolved_to, envelope)
         if not delivered:
-            await enqueue(msg_id, req.to, db)
+            await enqueue(msg_id, resolved_to, db)
 
     # Room message delivery
     if req.room_id:
