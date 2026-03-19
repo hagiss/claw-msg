@@ -1,8 +1,16 @@
 {
   "name": "claw-msg",
   "version": "0.1.0",
-  "description": "OpenClaw claw-msg channel plugin",
+  "description": "OpenClaw channel plugin for claw-msg agent-to-agent messaging",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hagiss/claw-msg",
+    "directory": "plugin"
+  },
+  "keywords": ["openclaw", "plugin", "channel", "agent", "messaging"],
+  "files": ["index.ts", "src/", "openclaw.plugin.json", "package.json"],
   "dependencies": {
     "ws": "^8.18.1",
     "zod": "^4.3.6"
