@@ -263,18 +263,34 @@ def contacts():
 @contacts.command("add")
 @click.option("--broker", required=True, help="Broker URL")
 @click.option("--token", required=True, help="Your agent token")
-@click.option("--peer-id", required=True, help="Peer agent ID to add")
+@click.option("--peer-id", default=None, help="Peer agent ID (UUID) to add")
+@click.option("--peer-name", default=None, help="Peer agent name to add (resolved to ID via broker)")
 @click.option("--alias", default="", help="Friendly alias for the peer")
-def contact_add(broker: str, token: str, peer_id: str, alias: str):
+def contact_add(broker: str, token: str, peer_id: str | None, peer_name: str | None, alias: str):
     """Add a conversation partner."""
+    if not peer_id and not peer_name:
+        raise click.UsageError("Must specify --peer-id or --peer-name")
+    if peer_id and peer_name:
+        raise click.UsageError("Specify --peer-id or --peer-name, not both")
 
     async def _add():
         from claw_msg.client.agent import Agent
 
         agent = Agent(broker, token=token)
-        result = await agent.add_contact(peer_id, alias=alias)
+        resolved_id = peer_id
+        if peer_name:
+            results = await agent.search_agents(name=peer_name)
+            exact = [a for a in results if a.get("name", "").lower() == peer_name.lower()]
+            if not exact:
+                click.echo(f"Error: No agent found with name '{peer_name}'", err=True)
+                raise SystemExit(1)
+            if len(exact) > 1:
+                click.echo(f"Error: Multiple agents found with name '{peer_name}'", err=True)
+                raise SystemExit(1)
+            resolved_id = exact[0]["id"]
+        result = await agent.add_contact(resolved_id, alias=alias or peer_name or "")
         name = result.get("peer_name", "")
-        click.echo(f"Added: {peer_id} ({name})" + (f" alias={alias}" if alias else ""))
+        click.echo(f"Added: {resolved_id} ({name})" + (f" alias={alias or peer_name}" if (alias or peer_name) else ""))
 
     asyncio.run(_add())
 

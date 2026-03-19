@@ -23,3 +23,11 @@ export function buildBrokerRegistrationUrl(broker: string): string {
 export function buildBrokerMessagesUrl(broker: string): string {
   return buildBrokerHttpUrl(broker, "messages/");
 }
+
+export function buildBrokerContactsUrl(broker: string): string {
+  return buildBrokerHttpUrl(broker, "contacts/");
+}
+
+export function buildBrokerAgentsSearchUrl(broker: string): string {
+  return buildBrokerHttpUrl(broker, "agents/");
+}

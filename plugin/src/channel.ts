@@ -28,6 +28,7 @@ import {
   normalizeClawMsgTarget,
   sendClawMsgMessage,
 } from "./outbound.ts";
+import { buildBrokerAgentsSearchUrl, buildBrokerContactsUrl } from "./urls.ts";
 import { ensureClawMsgRegistration } from "./registration.ts";
 import {
   clearClawMsgMonitorHandle,
@@ -36,6 +37,78 @@ import {
   setClawMsgMonitorHandle,
 } from "./runtime.ts";
 import type { CoreConfig, ResolvedClawMsgAccount } from "./types.ts";
+
+async function ensureAutoContacts(params: {
+  cfg: CoreConfig;
+  currentAccountId: string;
+  log?: { info?: (msg: string) => void; warn?: (msg: string) => void };
+}): Promise<void> {
+  const { cfg, currentAccountId, log } = params;
+  const allAccountIds = listClawMsgAccountIds(cfg);
+  if (allAccountIds.length < 2) {
+    return;
+  }
+
+  const currentAccount = resolveClawMsgAccount({ cfg, accountId: currentAccountId });
+  if (!currentAccount.token) {
+    return;
+  }
+
+  // Resolve peer accounts on the same broker
+  const peerAccounts = allAccountIds
+    .filter((id) => id !== currentAccountId)
+    .map((id) => resolveClawMsgAccount({ cfg, accountId: id }))
+    .filter((acc) => acc.broker === currentAccount.broker && acc.token);
+
+  if (peerAccounts.length === 0) {
+    return;
+  }
+
+  for (const peer of peerAccounts) {
+    try {
+      // Look up peer's agent UUID by name
+      const searchUrl = new URL(buildBrokerAgentsSearchUrl(currentAccount.broker));
+      searchUrl.searchParams.set("name", peer.name);
+      const searchResp = await fetch(searchUrl.toString(), {
+        headers: { authorization: `Bearer ${currentAccount.token}` },
+      });
+      if (!searchResp.ok) {
+        continue;
+      }
+      const agents = (await searchResp.json()) as Array<{ id: string; name: string }>;
+      const exactMatch = agents.find(
+        (a) => a.name.toLowerCase() === peer.name.toLowerCase(),
+      );
+      if (!exactMatch) {
+        continue;
+      }
+
+      // Add as contact (409 = already exists, that's fine)
+      const contactsUrl = buildBrokerContactsUrl(currentAccount.broker);
+      const addResp = await fetch(contactsUrl, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${currentAccount.token}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          peer_id: exactMatch.id,
+          alias: peer.name,
+        }),
+      });
+
+      if (addResp.ok) {
+        log?.info?.(`claw-msg auto-contacts: ${currentAccountId} added ${peer.name}`);
+      } else if (addResp.status !== 409) {
+        log?.warn?.(
+          `claw-msg auto-contacts: failed to add ${peer.name} (${addResp.status})`,
+        );
+      }
+    } catch {
+      // Silently skip — auto-contacts is best-effort
+    }
+  }
+}
 
 export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
   id: CHANNEL_ID,
@@ -297,6 +370,17 @@ export const clawMsgPlugin: ChannelPlugin<ResolvedClawMsgAccount> = {
         runtime: getClawMsgRuntime(),
         log: ctx.log,
       });
+
+      // Auto-add other same-broker accounts as contacts (best-effort)
+      try {
+        await ensureAutoContacts({
+          cfg: registration.cfg,
+          currentAccountId: ctx.accountId,
+          log: ctx.log,
+        });
+      } catch {
+        // Non-fatal — auto-contacts is a convenience feature
+      }
 
       const monitor = await startClawMsgMonitor({
         account: registration.account,

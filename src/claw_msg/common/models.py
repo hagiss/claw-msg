@@ -74,6 +74,7 @@ class MessageSendRequest(BaseModel):
 class MessageResponse(BaseModel):
     id: str
     from_agent: str
+    from_name: str | None = None
     to_agent: str | None = None
     room_id: str | None = None
     content: str

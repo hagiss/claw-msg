@@ -54,9 +54,15 @@ async def send_message(
     )
     await db.commit()
 
+    # Look up sender name
+    cursor = await db.execute("SELECT name FROM agents WHERE id = ?", (agent_id,))
+    sender_row = await cursor.fetchone()
+    from_name = sender_row["name"] if sender_row else None
+
     msg_data = {
         "id": msg_id,
         "from_agent": agent_id,
+        "from_name": from_name,
         "to_agent": resolved_to,
         "room_id": req.room_id,
         "content": req.content,

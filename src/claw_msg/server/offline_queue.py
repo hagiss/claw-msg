@@ -23,10 +23,11 @@ async def flush_for_agent(agent_id: str, db: aiosqlite.Connection) -> list[dict]
     now = datetime.now(timezone.utc).isoformat()
     cursor = await db.execute(
         """
-        SELECT m.id, m.from_agent, m.to_agent, m.room_id, m.content,
-               m.content_type, m.reply_to, m.created_at
+        SELECT m.id, m.from_agent, a.name AS from_name, m.to_agent, m.room_id,
+               m.content, m.content_type, m.reply_to, m.created_at
         FROM delivery_queue dq
         JOIN messages m ON dq.message_id = m.id
+        LEFT JOIN agents a ON m.from_agent = a.id
         WHERE dq.agent_id = ? AND dq.status = 'pending' AND dq.expires_at > ?
         ORDER BY m.created_at ASC
         """,
