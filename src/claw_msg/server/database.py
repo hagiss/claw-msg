@@ -1,4 +1,4 @@
-"""Async SQLite database with WAL mode."""
+"""Async SQLite database helpers."""
 
 import aiosqlite
 
@@ -90,18 +90,22 @@ def get_db_path() -> str:
     return _db_path
 
 
-async def get_db() -> aiosqlite.Connection:
+async def connect_db() -> aiosqlite.Connection:
     db = await aiosqlite.connect(_db_path)
     db.row_factory = aiosqlite.Row
-    await db.execute("PRAGMA foreign_keys=ON")
     return db
 
 
-async def init_db():
-    db = await aiosqlite.connect(_db_path)
+async def init_db(db: aiosqlite.Connection | None = None):
+    owns_connection = db is None
+    if owns_connection:
+        db = await connect_db()
+
     try:
         await db.execute("PRAGMA journal_mode=WAL")
+        await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA)
         await db.commit()
     finally:
-        await db.close()
+        if owns_connection:
+            await db.close()

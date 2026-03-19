@@ -8,6 +8,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+MAX_MESSAGE_CONTENT_LENGTH = 32768
+
 
 class AgentStatus(str, Enum):
     ONLINE = "online"
@@ -53,7 +55,7 @@ class AgentProfile(BaseModel):
 class MessageSendRequest(BaseModel):
     to: str | None = None
     room_id: str | None = None
-    content: str
+    content: str = Field(max_length=MAX_MESSAGE_CONTENT_LENGTH)
     content_type: str = "text/plain"
     reply_to: str | None = None
 

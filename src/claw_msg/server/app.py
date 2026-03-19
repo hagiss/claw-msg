@@ -1,11 +1,14 @@
 """FastAPI application factory with lifespan."""
 
-from contextlib import asynccontextmanager
+import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from claw_msg.server.database import init_db
+from claw_msg.server.config import OFFLINE_QUEUE_CLEANUP_INTERVAL_SECONDS
+from claw_msg.server.database import connect_db, init_db
+from claw_msg.server.offline_queue import run_cleanup_loop
 from claw_msg.server.routes_agents import router as agents_router
 from claw_msg.server.routes_messages import router as messages_router
 from claw_msg.server.routes_rooms import router as rooms_router
@@ -15,8 +18,20 @@ from claw_msg.server.routes_ws import router as ws_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
-    yield
+    db = await connect_db()
+    await init_db(db)
+    app.state.db = db
+    cleanup_task = asyncio.create_task(
+        run_cleanup_loop(db, OFFLINE_QUEUE_CLEANUP_INTERVAL_SECONDS)
+    )
+    app.state.offline_queue_cleanup_task = cleanup_task
+    try:
+        yield
+    finally:
+        cleanup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await cleanup_task
+        await db.close()
 
 
 def create_app() -> FastAPI:

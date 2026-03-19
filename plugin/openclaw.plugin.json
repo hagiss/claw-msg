@@ -1,0 +1,9 @@
+{
+  "id": "claw-msg",
+  "channels": ["claw-msg"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

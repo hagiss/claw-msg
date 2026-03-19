@@ -91,3 +91,37 @@ async def test_room_message_via_http(client):
     )
     assert resp.status_code == 200
     assert resp.json()["room_id"] == room_id
+
+
+@pytest.mark.asyncio
+async def test_get_messages_includes_room_messages_for_members(client):
+    _, token_owner = await register_agent(client, "room-history-owner")
+    _, token_member = await register_agent(client, "room-history-member")
+    _, token_outsider = await register_agent(client, "room-history-outsider")
+
+    resp = await client.post(
+        "/rooms/",
+        headers=auth_headers(token_owner),
+        json={"name": "history-room"},
+    )
+    room_id = resp.json()["id"]
+
+    await client.post(f"/rooms/{room_id}/join", headers=auth_headers(token_member))
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_owner),
+        json={"room_id": room_id, "content": "hello history room"},
+    )
+    assert resp.status_code == 200
+
+    member_messages = await client.get("/messages/", headers=auth_headers(token_member))
+    assert member_messages.status_code == 200
+    assert any(
+        message["room_id"] == room_id and message["content"] == "hello history room"
+        for message in member_messages.json()
+    )
+
+    outsider_messages = await client.get("/messages/", headers=auth_headers(token_outsider))
+    assert outsider_messages.status_code == 200
+    assert all(message["room_id"] != room_id for message in outsider_messages.json())

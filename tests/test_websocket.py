@@ -2,24 +2,17 @@
 
 import json
 
-import pytest
-from httpx import ASGITransport, AsyncClient
 from starlette.testclient import TestClient
 
 from claw_msg.common import protocol
-from claw_msg.server.app import app
-from tests.conftest import register_agent
+from tests.conftest import register_agent_sync
 
 
-@pytest.mark.asyncio
-async def test_ws_auth_and_ping(client):
+def test_ws_auth_and_ping(app):
     """Test WebSocket auth handshake using Starlette TestClient."""
-    _, token = await register_agent(client, "ws-agent")
-
-    # Use Starlette's sync TestClient for WebSocket testing
     with TestClient(app) as tc:
+        _, token = register_agent_sync(tc, "ws-agent")
         with tc.websocket_connect("/ws") as ws:
-            # Auth
             ws.send_text(json.dumps({
                 "type": protocol.AUTH,
                 "payload": {"token": token},
@@ -34,8 +27,7 @@ async def test_ws_auth_and_ping(client):
             assert resp["type"] == protocol.PONG
 
 
-@pytest.mark.asyncio
-async def test_ws_auth_fail(client):
+def test_ws_auth_fail(app):
     """Test that invalid token gets auth.fail."""
     with TestClient(app) as tc:
         with tc.websocket_connect("/ws") as ws:
@@ -47,14 +39,12 @@ async def test_ws_auth_fail(client):
             assert resp["type"] == protocol.AUTH_FAIL
 
 
-@pytest.mark.asyncio
-async def test_ws_direct_message(client):
+def test_ws_direct_message(app):
     """Test sending a message from one agent to another via WebSocket."""
-    agent_a, token_a = await register_agent(client, "ws-sender")
-    agent_b, token_b = await register_agent(client, "ws-receiver")
-
     with TestClient(app) as tc:
-        # Connect receiver first
+        agent_a, token_a = register_agent_sync(tc, "ws-sender")
+        agent_b, token_b = register_agent_sync(tc, "ws-receiver")
+
         with tc.websocket_connect("/ws") as ws_b:
             ws_b.send_text(json.dumps({
                 "type": protocol.AUTH,
@@ -63,7 +53,6 @@ async def test_ws_direct_message(client):
             auth_resp = json.loads(ws_b.receive_text())
             assert auth_resp["type"] == protocol.AUTH_OK
 
-            # Connect sender
             with tc.websocket_connect("/ws") as ws_a:
                 ws_a.send_text(json.dumps({
                     "type": protocol.AUTH,
@@ -72,7 +61,6 @@ async def test_ws_direct_message(client):
                 auth_resp = json.loads(ws_a.receive_text())
                 assert auth_resp["type"] == protocol.AUTH_OK
 
-                # Send message from A to B
                 ws_a.send_text(json.dumps({
                     "type": protocol.MESSAGE_SEND,
                     "payload": {
@@ -81,12 +69,63 @@ async def test_ws_direct_message(client):
                     },
                 }))
 
-                # A gets ack
                 ack = json.loads(ws_a.receive_text())
                 assert ack["type"] == protocol.MESSAGE_ACK
 
-            # B gets the message
             msg = json.loads(ws_b.receive_text())
             assert msg["type"] == protocol.MESSAGE_RECEIVE
             assert msg["payload"]["content"] == "hello via ws"
             assert msg["payload"]["from_agent"] == agent_a
+
+
+def test_ws_send_to_missing_agent_returns_error(app):
+    with TestClient(app) as tc:
+        _, token = register_agent_sync(tc, "ws-missing-recipient-sender")
+
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({
+                "type": protocol.AUTH,
+                "payload": {"token": token},
+            }))
+            auth_resp = json.loads(ws.receive_text())
+            assert auth_resp["type"] == protocol.AUTH_OK
+
+            ws.send_text(json.dumps({
+                "type": protocol.MESSAGE_SEND,
+                "payload": {
+                    "to": "missing-agent",
+                    "content": "hello via ws",
+                },
+            }))
+
+            error = json.loads(ws.receive_text())
+            assert error["type"] == protocol.ERROR
+            assert error["payload"]["detail"] == "Recipient agent not found"
+            assert error["payload"]["status_code"] == 404
+
+
+def test_ws_rejects_oversized_frame(app):
+    with TestClient(app) as tc:
+        agent_b, _ = register_agent_sync(tc, "ws-large-frame-recipient")
+        _, token = register_agent_sync(tc, "ws-large-frame-sender")
+
+        with tc.websocket_connect("/ws") as ws:
+            ws.send_text(json.dumps({
+                "type": protocol.AUTH,
+                "payload": {"token": token},
+            }))
+            auth_resp = json.loads(ws.receive_text())
+            assert auth_resp["type"] == protocol.AUTH_OK
+
+            ws.send_text(json.dumps({
+                "type": protocol.MESSAGE_SEND,
+                "payload": {
+                    "to": agent_b,
+                    "content": "x" * 66000,
+                },
+            }))
+
+            error = json.loads(ws.receive_text())
+            assert error["type"] == protocol.ERROR
+            assert error["payload"]["detail"] == "Frame exceeds 65536 bytes"
+            assert error["payload"]["status_code"] == 413

@@ -1,0 +1,114 @@
+{
+  "project": "claw-msg-plugin",
+  "branchName": "main",
+  "description": "OpenClaw channel plugin for claw-msg agent-to-agent messaging. Modeled after the Matrix plugin.",
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Plugin manifest and package setup",
+      "description": "As a developer, I want the plugin project scaffolded with openclaw.plugin.json, package.json, tsconfig, and index.ts so that OpenClaw can discover and load it.",
+      "acceptanceCriteria": [
+        "openclaw.plugin.json exists with id 'claw-msg', channels: ['claw-msg']",
+        "package.json has name 'claw-msg', openclaw.extensions pointing to ./index.ts, channel metadata (id, label, blurb, order), and install hints",
+        "tsconfig.json configured for ESM TypeScript",
+        "index.ts exports default plugin object with id, name, description, register(api) that calls api.registerChannel",
+        "Dependencies: ws (WebSocket client)"
+      ],
+      "priority": 1,
+      "passes": true,
+      "notes": "Follow Matrix plugin structure exactly. Use openclaw/plugin-sdk/core for types. Broker default URL: https://jiho-system-product-name.tail1de967.ts.net/claw"
+    },
+    {
+      "id": "US-002",
+      "title": "Config schema and account resolution",
+      "description": "As a user, I want to configure claw-msg in openclaw.json with broker URL, token, name, and dmPolicy so that the plugin knows how to connect.",
+      "acceptanceCriteria": [
+        "config-schema.ts defines Zod schema for claw-msg channel config: broker (string, default broker URL), token (optional string), name (string), dmPolicy (open|contacts_only, default open)",
+        "accounts.ts resolves account config — single account or multi-account pattern",
+        "Config validation works without executing plugin code (schema-only)",
+        "Default broker URL is https://jiho-system-product-name.tail1de967.ts.net/claw"
+      ],
+      "priority": 2,
+      "passes": true,
+      "notes": "Follow Matrix config-schema.ts pattern"
+    },
+    {
+      "id": "US-003",
+      "title": "WebSocket monitor — connect, auth, heartbeat, receive",
+      "description": "As a plugin, I want to maintain a persistent WebSocket connection to the claw-msg broker so that I can receive messages in real-time.",
+      "acceptanceCriteria": [
+        "monitor.ts connects to broker WebSocket endpoint (ws://broker/ws)",
+        "Sends auth frame with bearer token on connect",
+        "Handles auth.ok and auth.fail responses",
+        "Responds to ping frames with pong",
+        "Receives message.receive frames and dispatches to inbound handler",
+        "Auto-reconnects with exponential backoff on disconnect",
+        "Cleanly disconnects on shutdown"
+      ],
+      "priority": 3,
+      "passes": true,
+      "notes": "Protocol frames: auth, auth.ok, auth.fail, message.receive, message.send, message.ack, ping, pong, error. Use ws library for WebSocket client."
+    },
+    {
+      "id": "US-004",
+      "title": "Auto-registration on first start",
+      "description": "As a user, I want the plugin to automatically register with the broker if no token is configured so that I don't need to manually run claw-msg register.",
+      "acceptanceCriteria": [
+        "On plugin load, if config has no token: POST /agents/register to broker with agent name",
+        "Save received token to openclaw.json config automatically",
+        "Use agent name from config, falling back to OpenClaw agent name",
+        "Log registration success with agent_id",
+        "On subsequent starts, use saved token directly"
+      ],
+      "priority": 4,
+      "passes": true,
+      "notes": "Registration endpoint: POST /agents/register body: {name, capabilities, metadata}. Response: {agent_id, token}"
+    },
+    {
+      "id": "US-005",
+      "title": "Inbound message routing",
+      "description": "As an OpenClaw agent, I want to receive claw-msg messages as normal inbound messages with metadata indicating the sender is an agent.",
+      "acceptanceCriteria": [
+        "inbound.ts converts claw-msg message.receive frames to OpenClaw inbound format",
+        "Inbound message includes: channel='claw-msg', sender=agent_name, sender_id='claw-msg:<agent-id>'",
+        "Metadata includes: source='claw-msg', agent_id, agent_name, is_agent=true, reply_to (if present)",
+        "Message is routed to the correct OpenClaw agent via bindings",
+        "Agent can respond naturally and response triggers outbound flow"
+      ],
+      "priority": 5,
+      "passes": true,
+      "notes": "Use api.registerChannel's onMessage callback pattern from Matrix plugin"
+    },
+    {
+      "id": "US-006",
+      "title": "Outbound message sending",
+      "description": "As an OpenClaw agent, I want to send messages to other agents via the message tool with channel=claw-msg.",
+      "acceptanceCriteria": [
+        "outbound.ts handles send requests from OpenClaw message tool",
+        "Sends message via WebSocket if connected (message.send frame)",
+        "Falls back to HTTP POST /messages/ if WebSocket not available",
+        "Target is resolved from agent_id or contact alias",
+        "Returns delivery status"
+      ],
+      "priority": 6,
+      "passes": true,
+      "notes": "message send --channel claw-msg --target <agent-id> --message 'hello'"
+    },
+    {
+      "id": "US-007",
+      "title": "Channel plugin interface — full ChannelPlugin implementation",
+      "description": "As an OpenClaw gateway, I want claw-msg to implement the ChannelPlugin interface so it integrates like any other channel.",
+      "acceptanceCriteria": [
+        "channel.ts implements ChannelPlugin with all required methods",
+        "start() connects to broker via monitor",
+        "stop() disconnects cleanly",
+        "send() routes to outbound",
+        "Channel appears in openclaw channels list and openclaw status",
+        "Pairing/allowlist works for claw-msg senders"
+      ],
+      "priority": 7,
+      "passes": true,
+      "notes": "Follow Matrix channel.ts structure. This is the main integration point."
+    }
+  ]
+}
