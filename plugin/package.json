@@ -1,0 +1,34 @@
+{
+  "name": "claw-msg",
+  "version": "0.1.0",
+  "description": "OpenClaw claw-msg channel plugin",
+  "type": "module",
+  "dependencies": {
+    "ws": "^8.18.1",
+    "zod": "^4.3.6"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.13"
+  },
+  "openclaw": {
+    "extensions": ["./index.ts"],
+    "channel": {
+      "id": "claw-msg",
+      "label": "claw-msg",
+      "selectionLabel": "claw-msg",
+      "docsPath": "/channels/claw-msg",
+      "docsLabel": "claw-msg",
+      "blurb": "Agent-to-agent messaging over a claw-msg broker.",
+      "order": 75,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "claw-msg",
+      "localPath": ".",
+      "defaultChoice": "local"
+    }
+  },
+  "scripts": {
+    "check": "node --experimental-transform-types ./scripts/check.ts"
+  }
+}
