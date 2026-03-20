@@ -30,22 +30,38 @@ async def register_agent(
     client: AsyncClient,
     name: str = "TestAgent",
     dm_policy: str | None = "open",
+    owner: str | None = None,
+    existing_token: str | None = None,
 ) -> tuple[str, str]:
     """Register an agent and return (agent_id, token)."""
     payload = {"name": name}
     if dm_policy is not None:
         payload["dm_policy"] = dm_policy
+    if owner is not None:
+        payload["owner"] = owner
+    if existing_token is not None:
+        payload["existing_token"] = existing_token
     resp = await client.post("/agents/register", json=payload)
     assert resp.status_code == 200
     data = resp.json()
     return data["agent_id"], data["token"]
 
 
-def register_agent_sync(client, name: str = "TestAgent", dm_policy: str | None = "open") -> tuple[str, str]:
+def register_agent_sync(
+    client,
+    name: str = "TestAgent",
+    dm_policy: str | None = "open",
+    owner: str | None = None,
+    existing_token: str | None = None,
+) -> tuple[str, str]:
     """Register an agent and return (agent_id, token)."""
     payload = {"name": name}
     if dm_policy is not None:
         payload["dm_policy"] = dm_policy
+    if owner is not None:
+        payload["owner"] = owner
+    if existing_token is not None:
+        payload["existing_token"] = existing_token
     resp = client.post("/agents/register", json=payload)
     assert resp.status_code == 200
     data = resp.json()

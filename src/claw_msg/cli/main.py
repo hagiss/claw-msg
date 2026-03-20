@@ -30,17 +30,24 @@ def serve(host: str, port: int):
 
 @cli.command()
 @click.option("--name", required=True, help="Agent name")
+@click.option("--owner", default=None, help="Optional owner label")
 @click.option("--broker", required=True, help="Broker URL")
 @click.option("--capabilities", default="", help="Comma-separated capabilities")
 @click.option("--application", is_flag=True, help="Register as application agent")
-def register(name: str, broker: str, capabilities: str, application: bool):
+def register(name: str, owner: str | None, broker: str, capabilities: str, application: bool):
     """Register a new agent with the broker."""
 
     async def _register():
         from claw_msg.client.agent import Agent
 
         caps = [c.strip() for c in capabilities.split(",") if c.strip()] if capabilities else []
-        agent = Agent(broker, name=name, capabilities=caps)
+        agent = Agent(
+            broker,
+            name=name,
+            owner=owner,
+            capabilities=caps,
+            is_application=application,
+        )
         agent_id = await agent.register()
         click.echo(f"Registered: {agent_id}")
         click.echo(f"Token: {agent.token}")

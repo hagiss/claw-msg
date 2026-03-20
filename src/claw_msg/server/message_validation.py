@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 
 DM_CONTACTS_ONLY_ERROR = "Not in contacts. Ask the recipient to add you first."
+AMBIGUOUS_AGENT_NAME_ERROR = "Multiple agents with that name. Use UUID instead."
 
 
 async def resolve_agent_target(
@@ -29,7 +30,7 @@ async def resolve_agent_target(
 
     # Fallback: try by name (case-insensitive).
     cursor = await db.execute(
-        "SELECT id FROM agents WHERE name = ? COLLATE NOCASE",
+        "SELECT id FROM agents WHERE name = ? COLLATE NOCASE LIMIT 2",
         (identifier,),
     )
     rows = await cursor.fetchall()
@@ -38,6 +39,18 @@ async def resolve_agent_target(
 
     # 0 or multiple matches -> not found / ambiguous
     return None
+
+
+async def is_ambiguous_agent_name(
+    identifier: str,
+    db: "aiosqlite.Connection",
+) -> bool:
+    cursor = await db.execute(
+        "SELECT COUNT(*) AS count FROM agents WHERE name = ? COLLATE NOCASE",
+        (identifier,),
+    )
+    row = await cursor.fetchone()
+    return bool(row and row["count"] > 1)
 
 
 async def get_message_target_error(

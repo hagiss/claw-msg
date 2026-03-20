@@ -16,6 +16,8 @@ class HttpClient:
     async def register(
         self,
         name: str,
+        owner: str | None = None,
+        existing_token: str | None = None,
         capabilities: list[str] | None = None,
         metadata: dict | None = None,
         is_application: bool = False,
@@ -25,6 +27,8 @@ class HttpClient:
             "/agents/register",
             json={
                 "name": name,
+                "owner": owner,
+                "existing_token": existing_token,
                 "capabilities": capabilities or [],
                 "metadata": metadata or {},
                 "is_application": is_application,

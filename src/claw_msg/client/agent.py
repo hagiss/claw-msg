@@ -37,17 +37,21 @@ class Agent:
         self,
         broker_url: str,
         name: str = "unnamed-agent",
+        owner: str | None = None,
         capabilities: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
         dm_policy: str = "contacts_only",
+        is_application: bool = False,
         token: str | None = None,
         agent_id: str | None = None,
     ):
         self._broker_url = broker_url.rstrip("/")
         self._name = name
+        self._owner = owner
         self._capabilities = capabilities or []
         self._metadata = metadata or {}
         self._dm_policy = dm_policy
+        self._is_application = is_application
         self._token = token
         self._agent_id = agent_id
         self._connection: Connection | None = None
@@ -108,14 +112,18 @@ class Agent:
             await agent.register()
             return agent
 
-    async def register(self) -> str:
+    async def register(self, existing_token: str | None = None) -> str:
         """Register this agent with the broker. Returns agent_id."""
+        reuse_token = self._token if existing_token is None else existing_token
         http = self._create_http_client("")
         try:
             result = await http.register(
                 name=self._name,
+                owner=self._owner,
+                existing_token=reuse_token,
                 capabilities=self._capabilities,
                 metadata=self._metadata,
+                is_application=self._is_application,
                 dm_policy=self._dm_policy,
             )
         finally:
@@ -443,7 +451,7 @@ class Agent:
 
             self._token = None
             self._agent_id = None
-            await self.register()
+            await self.register(existing_token=failed_token)
 
     def _create_http_client(self, token: str) -> HttpClient:
         return HttpClient(self._broker_url, token)

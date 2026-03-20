@@ -65,3 +65,36 @@ async def test_http_client_reuses_single_async_client(monkeypatch):
 
     await client.close()
     assert FakeAsyncClient.instances[0].closed is True
+
+
+@pytest.mark.asyncio
+async def test_http_client_register_sends_owner_and_existing_token(monkeypatch):
+    import claw_msg.client.http as http_mod
+
+    FakeAsyncClient.instances = []
+    monkeypatch.setattr(http_mod.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = HttpClient("http://broker.test", "token")
+    await client.register(
+        name="agent-name",
+        owner="team-a",
+        existing_token="stale-token",
+        capabilities=["search"],
+        metadata={"role": "assistant"},
+        is_application=True,
+        dm_policy="open",
+    )
+
+    assert FakeAsyncClient.instances[0].calls == [
+        ("post", "/agents/register", {
+            "json": {
+                "name": "agent-name",
+                "owner": "team-a",
+                "existing_token": "stale-token",
+                "capabilities": ["search"],
+                "metadata": {"role": "assistant"},
+                "is_application": True,
+                "dm_policy": "open",
+            }
+        })
+    ]

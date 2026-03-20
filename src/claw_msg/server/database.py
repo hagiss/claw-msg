@@ -12,6 +12,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS agents (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
+    owner TEXT,
     capabilities TEXT NOT NULL DEFAULT '[]',
     metadata TEXT NOT NULL DEFAULT '{}',
     token_hash TEXT NOT NULL,
@@ -90,7 +91,14 @@ CREATE TABLE IF NOT EXISTS contacts (
 );
 
 CREATE INDEX IF NOT EXISTS idx_contacts_agent ON contacts(agent_id);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    name TEXT PRIMARY KEY,
+    applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
+
+LEGACY_AGENT_NAME_DEDUP_MIGRATION = "legacy_agent_name_dedup"
 
 
 def get_db_path() -> str:
@@ -121,10 +129,23 @@ async def _ensure_column(
     await db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+async def _has_migration(db: aiosqlite.Connection, name: str) -> bool:
+    cursor = await db.execute(
+        "SELECT 1 FROM schema_migrations WHERE name = ?",
+        (name,),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def _mark_migration_applied(db: aiosqlite.Connection, name: str):
+    await db.execute(
+        "INSERT OR IGNORE INTO schema_migrations (name) VALUES (?)",
+        (name,),
+    )
+
+
 async def _deduplicate_agents(db: aiosqlite.Connection):
     """Delete duplicate agents by name, keeping the most recently created one."""
-    # Only needed for pre-unique-constraint databases.
-    # The unique index in SCHEMA handles new databases.
     cursor = await db.execute(
         """SELECT name FROM agents
            GROUP BY name COLLATE NOCASE HAVING COUNT(*) > 1"""
@@ -143,6 +164,14 @@ async def _deduplicate_agents(db: aiosqlite.Connection):
         )
 
 
+async def _run_legacy_agent_name_dedup_migration(db: aiosqlite.Connection):
+    if await _has_migration(db, LEGACY_AGENT_NAME_DEDUP_MIGRATION):
+        return
+
+    await _deduplicate_agents(db)
+    await _mark_migration_applied(db, LEGACY_AGENT_NAME_DEDUP_MIGRATION)
+
+
 async def init_db(db: aiosqlite.Connection | None = None):
     owns_connection = db is None
     if owns_connection:
@@ -153,14 +182,13 @@ async def init_db(db: aiosqlite.Connection | None = None):
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA)
         await _ensure_column(db, "agents", "dm_policy", "TEXT NOT NULL DEFAULT 'contacts_only'")
+        await _ensure_column(db, "agents", "owner", "TEXT")
         await _ensure_column(db, "agents", "public_key", "TEXT")
         await _ensure_column(db, "contacts", "tags", "TEXT NOT NULL DEFAULT '[]'")
         await _ensure_column(db, "contacts", "notes", "TEXT NOT NULL DEFAULT ''")
         await _ensure_column(db, "contacts", "met_via", "TEXT NOT NULL DEFAULT ''")
-        await _deduplicate_agents(db)
-        await db.execute(
-            "CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_name_unique ON agents(name COLLATE NOCASE)"
-        )
+        await _run_legacy_agent_name_dedup_migration(db)
+        await db.execute("DROP INDEX IF EXISTS idx_agents_name_unique")
         await db.commit()
     finally:
         if owns_connection:

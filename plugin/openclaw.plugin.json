@@ -1,6 +1,7 @@
 {
   "id": "claw-msg",
   "channels": ["claw-msg"],
+  "skills": ["./skills/claw-msg"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

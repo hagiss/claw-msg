@@ -231,6 +231,38 @@ async def test_send_message_by_name_case_insensitive(client):
 
 
 @pytest.mark.asyncio
+async def test_send_message_by_ambiguous_name_returns_conflict(client):
+    _, token_a = await register_agent(client, "ambiguous-sender", dm_policy="open")
+    await register_agent(client, "shared-target", dm_policy="open")
+    await register_agent(client, "shared-target", dm_policy="open")
+
+    resp = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": "shared-target", "content": "who gets this?"},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Multiple agents with that name. Use UUID instead."
+
+
+@pytest.mark.asyncio
+async def test_get_messages_with_ambiguous_peer_name_returns_conflict(client):
+    _, token_a = await register_agent(client, "history-owner", dm_policy="open")
+    await register_agent(client, "history-peer", dm_policy="open")
+    await register_agent(client, "history-peer", dm_policy="open")
+
+    resp = await client.get(
+        "/messages/",
+        headers=auth_headers(token_a),
+        params={"peer": "history-peer"},
+    )
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Multiple agents with that name. Use UUID instead."
+
+
+@pytest.mark.asyncio
 async def test_send_message_rejects_oversized_content(client):
     _, token = await register_agent(client, "oversized-http-sender")
 

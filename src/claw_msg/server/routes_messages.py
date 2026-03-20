@@ -9,7 +9,12 @@ from claw_msg.common.models import MessageHistoryResponse, MessageResponse, Mess
 from claw_msg.common import protocol
 from claw_msg.server.auth import get_current_agent
 from claw_msg.server.broker import broker
-from claw_msg.server.message_validation import get_message_target_error, resolve_agent_target
+from claw_msg.server.message_validation import (
+    AMBIGUOUS_AGENT_NAME_ERROR,
+    get_message_target_error,
+    is_ambiguous_agent_name,
+    resolve_agent_target,
+)
 from claw_msg.server.offline_queue import enqueue
 from claw_msg.server.rate_limit import rate_limiter
 
@@ -38,6 +43,8 @@ async def send_message(
     if req.to:
         resolved_to = await resolve_agent_target(req.to, db)
         if resolved_to is None:
+            if await is_ambiguous_agent_name(req.to, db):
+                raise HTTPException(status_code=409, detail=AMBIGUOUS_AGENT_NAME_ERROR)
             raise HTTPException(status_code=404, detail="Recipient agent not found")
 
     if not rate_limiter.allow(agent_id):
@@ -121,6 +128,8 @@ async def get_messages(
     if peer:
         resolved_peer = await resolve_agent_target(peer, db)
         if resolved_peer is None:
+            if await is_ambiguous_agent_name(peer, db):
+                raise HTTPException(status_code=409, detail=AMBIGUOUS_AGENT_NAME_ERROR)
             return []
 
     query = [

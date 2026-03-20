@@ -37,6 +37,8 @@ class DMPolicy(str, Enum):
 
 class AgentRegisterRequest(BaseModel):
     name: str
+    owner: str | None = None
+    existing_token: str | None = None
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_application: bool = False
@@ -51,6 +53,7 @@ class AgentRegisterResponse(BaseModel):
 class AgentProfile(BaseModel):
     id: str
     name: str
+    owner: str | None = None
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     is_application: bool = False

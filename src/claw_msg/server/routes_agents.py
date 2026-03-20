@@ -13,6 +13,7 @@ from claw_msg.common.models import (
     AgentUpdateRequest,
 )
 from claw_msg.server.auth import (
+    authenticate_token,
     generate_agent_id,
     generate_token,
     get_current_agent,
@@ -27,6 +28,7 @@ def _agent_profile(row) -> AgentProfile:
     return AgentProfile(
         id=row["id"],
         name=row["name"],
+        owner=row["owner"],
         capabilities=json.loads(row["capabilities"]),
         metadata=json.loads(row["metadata"]),
         is_application=bool(row["is_application"]),
@@ -46,41 +48,61 @@ async def _get_agent_row(db, agent_id: str):
 async def register_agent(req: AgentRegisterRequest, request: Request):
     token = generate_token()
     db = request.app.state.db
+    existing_agent_id = None
+    if req.existing_token:
+        existing_agent_id = await authenticate_token(req.existing_token, db)
 
-    # Check if an agent with this name already exists (case-insensitive).
-    cursor = await db.execute(
-        "SELECT id FROM agents WHERE name = ? COLLATE NOCASE",
-        (req.name,),
-    )
-    existing = await cursor.fetchone()
+    if existing_agent_id:
+        assignments = [
+            "name = ?",
+            "capabilities = ?",
+            "metadata = ?",
+            "token_hash = ?",
+            "token_lookup = ?",
+            "is_application = ?",
+            "dm_policy = ?",
+        ]
+        values: list[object] = [
+            req.name,
+            json.dumps(req.capabilities),
+            json.dumps(req.metadata),
+            hash_token(token),
+            token_lookup_hash(token),
+            int(req.is_application),
+            req.dm_policy,
+        ]
+        if req.owner is not None:
+            assignments.append("owner = ?")
+            values.append(req.owner)
 
-    if existing:
-        agent_id = existing["id"]
+        values.append(existing_agent_id)
         await db.execute(
-            """UPDATE agents
-               SET token_hash = ?, token_lookup = ?,
-                   capabilities = ?, metadata = ?,
-                   is_application = ?, dm_policy = ?
-               WHERE id = ?""",
-            (
-                hash_token(token),
-                token_lookup_hash(token),
-                json.dumps(req.capabilities),
-                json.dumps(req.metadata),
-                int(req.is_application),
-                req.dm_policy,
-                agent_id,
-            ),
+            f"""UPDATE agents
+                SET {", ".join(assignments)}
+                WHERE id = ?""",
+            tuple(values),
         )
+        agent_id = existing_agent_id
     else:
         agent_id = generate_agent_id()
         await db.execute(
             """INSERT INTO agents
-               (id, name, capabilities, metadata, token_hash, token_lookup, is_application, dm_policy)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+               (
+                   id,
+                   name,
+                   owner,
+                   capabilities,
+                   metadata,
+                   token_hash,
+                   token_lookup,
+                   is_application,
+                   dm_policy
+               )
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 agent_id,
                 req.name,
+                req.owner,
                 json.dumps(req.capabilities),
                 json.dumps(req.metadata),
                 hash_token(token),
