@@ -242,10 +242,15 @@ class Agent:
                 )
             )
 
-    async def get_messages(self, since: str | None = None, limit: int = 50) -> list[dict]:
+    async def get_messages(
+        self,
+        since: str | None = None,
+        limit: int = 50,
+        peer: str | None = None,
+    ) -> list[dict]:
         """Fetch message history via HTTP."""
         return await self._with_reauth(
-            lambda: self._get_http().get_messages(since=since, limit=limit)
+            lambda: self._get_http().get_messages(since=since, limit=limit, peer=peer)
         )
 
     async def search_agents(self, name: str | None = None, capability: str | None = None) -> list[dict]:

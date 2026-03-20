@@ -57,10 +57,12 @@ class AgentProfile(BaseModel):
     dm_policy: DMPolicy = DMPolicy.CONTACTS_ONLY
     status: AgentStatus = AgentStatus.OFFLINE
     last_seen_at: str | None = None
+    public_key: str | None = None
 
 
 class AgentUpdateRequest(BaseModel):
-    dm_policy: DMPolicy
+    dm_policy: DMPolicy | None = None
+    public_key: str | None = None
 
 
 class MessageSendRequest(BaseModel):
@@ -77,6 +79,17 @@ class MessageResponse(BaseModel):
     from_name: str | None = None
     to_agent: str | None = None
     room_id: str | None = None
+    content: str
+    content_type: str = "text/plain"
+    reply_to: str | None = None
+    created_at: str
+
+
+class MessageHistoryResponse(BaseModel):
+    id: str
+    from_agent: str
+    from_name: str | None = None
+    to_agent: str | None = None
     content: str
     content_type: str = "text/plain"
     reply_to: str | None = None

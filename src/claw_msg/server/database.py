@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS agents (
     dm_policy TEXT NOT NULL DEFAULT 'contacts_only',
     status TEXT NOT NULL DEFAULT 'offline',
     last_seen_at TEXT,
+    public_key TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -152,6 +153,7 @@ async def init_db(db: aiosqlite.Connection | None = None):
         await db.execute("PRAGMA foreign_keys=ON")
         await db.executescript(SCHEMA)
         await _ensure_column(db, "agents", "dm_policy", "TEXT NOT NULL DEFAULT 'contacts_only'")
+        await _ensure_column(db, "agents", "public_key", "TEXT")
         await _ensure_column(db, "contacts", "tags", "TEXT NOT NULL DEFAULT '[]'")
         await _ensure_column(db, "contacts", "notes", "TEXT NOT NULL DEFAULT ''")
         await _ensure_column(db, "contacts", "met_via", "TEXT NOT NULL DEFAULT ''")

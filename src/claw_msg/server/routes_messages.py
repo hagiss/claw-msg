@@ -1,10 +1,11 @@
 """HTTP message endpoints — polling fallback for agents without WebSocket."""
 
+from datetime import datetime, timezone
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from claw_msg.common.models import MessageResponse, MessageSendRequest
+from claw_msg.common.models import MessageHistoryResponse, MessageResponse, MessageSendRequest
 from claw_msg.common import protocol
 from claw_msg.server.auth import get_current_agent
 from claw_msg.server.broker import broker
@@ -13,6 +14,12 @@ from claw_msg.server.offline_queue import enqueue
 from claw_msg.server.rate_limit import rate_limiter
 
 router = APIRouter(prefix="/messages", tags=["messages"])
+
+
+def _normalize_since(since: datetime) -> str:
+    if since.tzinfo is not None:
+        since = since.astimezone(timezone.utc).replace(tzinfo=None)
+    return since.strftime("%Y-%m-%d %H:%M:%S")
 
 
 @router.post("/", response_model=MessageResponse)
@@ -101,41 +108,55 @@ async def send_message(
     return MessageResponse(**msg_data)
 
 
-@router.get("/", response_model=list[MessageResponse])
+@router.get("/", response_model=list[MessageHistoryResponse])
 async def get_messages(
     request: Request,
     agent_id: str = Depends(get_current_agent),
-    since: str | None = Query(None),
-    limit: int = Query(50, le=200),
+    peer: str | None = Query(None),
+    since: datetime | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
 ):
     db = request.app.state.db
+    resolved_peer = None
+    if peer:
+        resolved_peer = await resolve_agent_target(peer, db)
+        if resolved_peer is None:
+            return []
+
+    query = [
+        """SELECT
+               m.id,
+               m.from_agent,
+               sender.name AS from_name,
+               m.to_agent,
+               m.content,
+               m.content_type,
+               m.reply_to,
+               m.created_at
+           FROM messages m
+           JOIN agents sender ON sender.id = m.from_agent
+           WHERE m.room_id IS NULL
+             AND (m.from_agent = ? OR m.to_agent = ?)"""
+    ]
+    values: list[object] = [agent_id, agent_id]
+
+    if resolved_peer:
+        query.append(
+            """AND (
+                   (m.from_agent = ? AND m.to_agent = ?)
+                   OR (m.from_agent = ? AND m.to_agent = ?)
+               )"""
+        )
+        values.extend([agent_id, resolved_peer, resolved_peer, agent_id])
+
     if since:
-        cursor = await db.execute(
-            """SELECT * FROM messages
-               WHERE (
-                   to_agent = ?
-                   OR from_agent = ?
-                   OR EXISTS (
-                       SELECT 1 FROM room_members rm
-                       WHERE rm.room_id = messages.room_id AND rm.agent_id = ?
-                   )
-               ) AND created_at > ?
-               ORDER BY created_at DESC LIMIT ?""",
-            (agent_id, agent_id, agent_id, since, limit),
-        )
-    else:
-        cursor = await db.execute(
-            """SELECT * FROM messages
-               WHERE
-                   to_agent = ?
-                   OR from_agent = ?
-                   OR EXISTS (
-                       SELECT 1 FROM room_members rm
-                       WHERE rm.room_id = messages.room_id AND rm.agent_id = ?
-                   )
-               ORDER BY created_at DESC LIMIT ?""",
-            (agent_id, agent_id, agent_id, limit),
-        )
+        query.append("AND m.created_at > ?")
+        values.append(_normalize_since(since))
+
+    query.append("ORDER BY m.created_at DESC LIMIT ?")
+    values.append(limit)
+
+    cursor = await db.execute("\n".join(query), tuple(values))
     rows = await cursor.fetchall()
 
-    return [MessageResponse(**dict(row)) for row in rows]
+    return [MessageHistoryResponse(**dict(row)) for row in rows]

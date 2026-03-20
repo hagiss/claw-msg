@@ -49,10 +49,17 @@ class HttpClient:
         resp.raise_for_status()
         return resp.json()
 
-    async def get_messages(self, since: str | None = None, limit: int = 50) -> list[dict]:
+    async def get_messages(
+        self,
+        since: str | None = None,
+        limit: int = 50,
+        peer: str | None = None,
+    ) -> list[dict]:
         params: dict = {"limit": limit}
         if since:
             params["since"] = since
+        if peer:
+            params["peer"] = peer
         resp = await self._client.get(
             "/messages/",
             headers=self._headers,

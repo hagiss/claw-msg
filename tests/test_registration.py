@@ -69,6 +69,39 @@ async def test_update_dm_policy(client):
 
 
 @pytest.mark.asyncio
+async def test_update_public_key_and_expose_it_in_profile_and_search(client):
+    agent_id, token = await register_agent(client, "key-owner")
+
+    resp = await client.patch(
+        "/agents/me",
+        headers=auth_headers(token),
+        json={"public_key": "age1examplepublickey"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["public_key"] == "age1examplepublickey"
+
+    profile = await client.get("/agents/me", headers=auth_headers(token))
+    assert profile.status_code == 200
+    assert profile.json()["public_key"] == "age1examplepublickey"
+
+    public_profile = await client.get(f"/agents/{agent_id}")
+    assert public_profile.status_code == 200
+    assert public_profile.json()["public_key"] == "age1examplepublickey"
+
+    search = await client.get("/agents/", params={"name": "key-owner"})
+    assert search.status_code == 200
+    assert search.json()[0]["public_key"] == "age1examplepublickey"
+
+    cleared = await client.patch(
+        "/agents/me",
+        headers=auth_headers(token),
+        json={"public_key": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["public_key"] is None
+
+
+@pytest.mark.asyncio
 async def test_reregister_same_name_returns_same_agent_id(client):
     agent_id_1, token_1 = await register_agent(client, "reuse-me")
     agent_id_2, token_2 = await register_agent(client, "reuse-me")

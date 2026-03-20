@@ -308,7 +308,12 @@ class FakeHttpClient:
         })
         return self.sent_response
 
-    async def get_messages(self, since: str | None = None, limit: int = 50) -> list[dict]:
+    async def get_messages(
+        self,
+        since: str | None = None,
+        limit: int = 50,
+        peer: str | None = None,
+    ) -> list[dict]:
         return self.messages
 
     async def close(self):
@@ -321,7 +326,12 @@ class SequencedMessageHttpClient(FakeHttpClient):
         self.message_batches = list(message_batches)
         self.get_messages_calls = 0
 
-    async def get_messages(self, since: str | None = None, limit: int = 50) -> list[dict]:
+    async def get_messages(
+        self,
+        since: str | None = None,
+        limit: int = 50,
+        peer: str | None = None,
+    ) -> list[dict]:
         self.get_messages_calls += 1
         if self.message_batches:
             return self.message_batches.pop(0)
@@ -467,7 +477,11 @@ async def test_agent_wait_for_reply_uses_exponential_backoff():
         }],
     ]
 
-    async def fake_get_messages(since: str | None = None, limit: int = 50) -> list[dict]:
+    async def fake_get_messages(
+        since: str | None = None,
+        limit: int = 50,
+        peer: str | None = None,
+    ) -> list[dict]:
         return message_batches.pop(0)
 
     async def fake_sleep(delay: float):

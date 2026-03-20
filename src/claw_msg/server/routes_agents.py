@@ -33,6 +33,7 @@ def _agent_profile(row) -> AgentProfile:
         dm_policy=row["dm_policy"],
         status=row["status"],
         last_seen_at=row["last_seen_at"],
+        public_key=row["public_key"],
     )
 
 
@@ -111,14 +112,21 @@ async def update_my_profile(
     agent_id: str = Depends(get_current_agent),
 ):
     db = request.app.state.db
-    cursor = await db.execute(
-        "UPDATE agents SET dm_policy = ? WHERE id = ?",
-        (req.dm_policy, agent_id),
-    )
-    await db.commit()
+    updates = req.model_dump(exclude_unset=True)
+    if "dm_policy" in updates and updates["dm_policy"] is None:
+        updates.pop("dm_policy")
 
-    if cursor.rowcount == 0:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    if updates:
+        assignments = ", ".join(f"{field} = ?" for field in updates)
+        values = list(updates.values()) + [agent_id]
+        cursor = await db.execute(
+            f"UPDATE agents SET {assignments} WHERE id = ?",
+            tuple(values),
+        )
+        await db.commit()
+
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Agent not found")
 
     row = await _get_agent_row(db, agent_id)
     if not row:

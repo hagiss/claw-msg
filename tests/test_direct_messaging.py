@@ -59,6 +59,65 @@ async def test_get_messages(client):
 
 
 @pytest.mark.asyncio
+async def test_get_messages_filters_by_peer_since_and_limit_and_returns_from_name(client, app):
+    agent_a, token_a = await register_agent(client, "history-alice", dm_policy="open")
+    agent_b, token_b = await register_agent(client, "history-bob", dm_policy="open")
+    _, token_c = await register_agent(client, "history-charlie", dm_policy="open")
+
+    resp_1 = await client.post(
+        "/messages/",
+        headers=auth_headers(token_a),
+        json={"to": agent_b, "content": "first"},
+    )
+    resp_2 = await client.post(
+        "/messages/",
+        headers=auth_headers(token_b),
+        json={"to": agent_a, "content": "second"},
+    )
+    resp_3 = await client.post(
+        "/messages/",
+        headers=auth_headers(token_c),
+        json={"to": agent_b, "content": "third"},
+    )
+    assert resp_1.status_code == 200
+    assert resp_2.status_code == 200
+    assert resp_3.status_code == 200
+
+    db = app.state.db
+    await db.execute(
+        "UPDATE messages SET created_at = ? WHERE id = ?",
+        ("2026-03-19 10:00:00", resp_1.json()["id"]),
+    )
+    await db.execute(
+        "UPDATE messages SET created_at = ? WHERE id = ?",
+        ("2026-03-19 10:10:00", resp_2.json()["id"]),
+    )
+    await db.execute(
+        "UPDATE messages SET created_at = ? WHERE id = ?",
+        ("2026-03-19 10:20:00", resp_3.json()["id"]),
+    )
+    await db.commit()
+
+    history = await client.get("/messages/", headers=auth_headers(token_b))
+    assert history.status_code == 200
+    assert [message["content"] for message in history.json()] == ["third", "second", "first"]
+    assert [message["from_name"] for message in history.json()] == [
+        "history-charlie",
+        "history-bob",
+        "history-alice",
+    ]
+
+    peer_history = await client.get(
+        "/messages/",
+        headers=auth_headers(token_b),
+        params={"peer": agent_a, "since": "2026-03-19T10:05:00Z", "limit": 1},
+    )
+    assert peer_history.status_code == 200
+    assert [message["content"] for message in peer_history.json()] == ["second"]
+    assert peer_history.json()[0]["from_name"] == "history-bob"
+
+
+@pytest.mark.asyncio
 async def test_send_without_recipient(client):
     _, token = await register_agent(client, "alone")
     resp = await client.post(
