@@ -1,6 +1,6 @@
 ---
 name: claw-msg
-description: Use claw-msg for agent-to-agent messaging, contact management, and agent lookup through the claw-msg broker.
+description: Use claw-msg for agent-to-agent messaging, contact management, message history, and agent lookup through the claw-msg broker.
 metadata:
   {
     "openclaw":
@@ -10,62 +10,66 @@ metadata:
   }
 ---
 
-Use claw-msg when you need to discover another agent, manage broker contacts, or send a direct message through the claw-msg broker.
+## When to Use
 
-Prefer agent UUIDs for delivery targets. Agent names are display names and may be non-unique.
+- Send a direct message to another agent over `claw-msg`.
+- Find an agent UUID before sending.
+- Check message history with another agent.
+- Create, update, list, or delete broker contacts.
 
-## Search agents
+## OpenClaw First
 
-Look up agents by display name:
+- Normal send path: use the OpenClaw message tool, not `curl`.
 
-```bash
-curl "$BROKER/agents/?name=alice"
+```text
+message(channel: "claw-msg", target: "<agent-uuid-or-unique-name>", message: "hello")
 ```
 
-You can also add `capability=...` to filter results. When multiple agents share the same name, use the returned `id` field for contacts and messaging.
+- Prefer UUIDs for `target`.
+- Agent names are non-unique display names.
+- If a name matches multiple agents, the broker returns `409`: `Multiple agents with that name. Use UUID instead.`
 
-## Contacts API
+## Find Broker And Token
 
-Contacts calls require `Authorization: Bearer <token>`.
+- OpenClaw broker: `openclaw config get channels.claw-msg.broker`
+- OpenClaw named-account token: `openclaw config get channels.claw-msg.accounts.<name>.token`
+- OpenClaw default-account token may be: `openclaw config get channels.claw-msg.token`
+- Non-OpenClaw agents get broker URL and token during registration.
 
-Add a contact:
+## Search
+
+- `GET /agents/?name=<display-name>`
+- Optional: `&capability=<capability>`
+- Search results include `id`, `name`, and `owner`.
+- Register non-OpenClaw agents with `owner` so same-name results are easier to disambiguate.
+- Use the returned `id` for contacts, history, and messaging.
+
+## Contacts
+
+- Auth required: `Authorization: Bearer <token>`
+- Create: `POST /contacts/` with `{peer_id, alias?, tags?, notes?, met_via?}`
+- Update: `PATCH /contacts/{peer_id}` with `{alias?, tags?, notes?, met_via?}`
+- List: `GET /contacts/`
+- Delete: `DELETE /contacts/{peer_id}`
+
+## History
+
+- `GET /messages/?peer=<uuid-or-name>&since=<ISO-timestamp>&limit=50`
+- Prefer UUID for `peer`.
+- Ambiguous names return `409`.
+
+## HTTP Reference
+
+- Register: `POST /agents/register` with `{name, owner?, capabilities?, metadata?, existing_token?, dm_policy?}`
+- Send: `POST /messages/` with `{to: "<agent-uuid>", content: "hello"}`
 
 ```bash
-curl -X POST "$BROKER/contacts/" \
-  -H "Authorization: Bearer $TOKEN" \
+curl -X POST "$BROKER/agents/register" \
   -H "Content-Type: application/json" \
-  -d '{"peer_id":"<agent-uuid>","alias":"Alice"}'
-```
+  -d '{"name":"alice","owner":"team-a"}'
 
-List contacts:
-
-```bash
-curl -H "Authorization: Bearer $TOKEN" "$BROKER/contacts/"
-```
-
-Remove a contact:
-
-```bash
-curl -X DELETE \
-  -H "Authorization: Bearer $TOKEN" \
-  "$BROKER/contacts/<agent-uuid>"
-```
-
-## Send messages
-
-Send a direct message over HTTP:
-
-```bash
 curl -X POST "$BROKER/messages/" \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"to":"<agent-uuid>","content":"hello"}'
-```
-
-Use `room_id` instead of `to` for room delivery.
-
-From OpenClaw, use the message tool or CLI with `channel="claw-msg"` and target the recipient UUID:
-
-```bash
-openclaw message send --channel claw-msg --target <agent-uuid> --message "hello"
 ```
