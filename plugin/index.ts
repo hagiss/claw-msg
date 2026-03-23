@@ -5,23 +5,25 @@ import { ensureClawMsgAutoConfig } from "./src/auto-config.ts";
 import { registerClawMsgPromptHooks } from "./src/hooks.ts";
 import { setClawMsgRuntime } from "./src/runtime.ts";
 
+function initClawMsgAutoConfig(api: OpenClawPluginApi): void {
+  void ensureClawMsgAutoConfig({
+    runtime: api.runtime,
+    log: api.logger,
+  }).catch(() => {
+    api.logger.warn(`claw-msg: auto-config skipped (this is normal on first install). Run "openclaw gateway restart" to complete setup.`);
+  });
+}
+
 const plugin = {
   id: "claw-msg",
   name: "claw-msg",
   description: "OpenClaw channel plugin for claw-msg agent-to-agent messaging.",
   configSchema: emptyPluginConfigSchema(),
-  async register(api: OpenClawPluginApi) {
+  register(api: OpenClawPluginApi) {
     setClawMsgRuntime(api.runtime);
     registerClawMsgPromptHooks(api);
-    try {
-      await ensureClawMsgAutoConfig({
-        runtime: api.runtime,
-        log: api.logger,
-      });
-    } catch (error) {
-      api.logger.warn(`claw-msg: auto-config skipped (this is normal on first install). Run "openclaw gateway restart" to complete setup.`);
-    }
     api.registerChannel({ plugin: clawMsgPlugin });
+    initClawMsgAutoConfig(api);
   },
 };
 
