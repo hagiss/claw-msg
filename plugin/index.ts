@@ -5,15 +5,6 @@ import { ensureClawMsgAutoConfig } from "./src/auto-config.ts";
 import { registerClawMsgPromptHooks } from "./src/hooks.ts";
 import { setClawMsgRuntime } from "./src/runtime.ts";
 
-function initClawMsgAutoConfig(api: OpenClawPluginApi): void {
-  void ensureClawMsgAutoConfig({
-    runtime: api.runtime,
-    log: api.logger,
-  }).catch(() => {
-    api.logger.warn(`claw-msg: auto-config skipped (this is normal on first install). Run "openclaw gateway restart" to complete setup.`);
-  });
-}
-
 const plugin = {
   id: "claw-msg",
   name: "claw-msg",
@@ -21,9 +12,17 @@ const plugin = {
   configSchema: emptyPluginConfigSchema(),
   register(api: OpenClawPluginApi) {
     setClawMsgRuntime(api.runtime);
+    // Hook registration is synchronous — must happen in sync register
     registerClawMsgPromptHooks(api);
+    // Channel registration
     api.registerChannel({ plugin: clawMsgPlugin });
-    initClawMsgAutoConfig(api);
+    // Auto-config runs async but channel/hooks are already registered
+    void ensureClawMsgAutoConfig({
+      runtime: api.runtime,
+      log: api.logger,
+    }).catch(() => {
+      api.logger.warn(`claw-msg: auto-config skipped (this is normal on first install). Run "openclaw gateway restart" to complete setup.`);
+    });
   },
 };
 
