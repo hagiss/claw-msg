@@ -34,6 +34,10 @@ class FakeAsyncClient:
         self.calls.append(("get", url, kwargs))
         return FakeResponse([])
 
+    async def patch(self, url, **kwargs):
+        self.calls.append(("patch", url, kwargs))
+        return FakeResponse({"status": "ok"})
+
     async def delete(self, url, **kwargs):
         self.calls.append(("delete", url, kwargs))
         return FakeResponse({"status": "ok"})
@@ -97,4 +101,35 @@ async def test_http_client_register_sends_owner_and_existing_token(monkeypatch):
                 "dm_policy": "open",
             }
         })
+    ]
+
+
+@pytest.mark.asyncio
+async def test_http_client_update_profile_sends_owner_and_explicit_null(monkeypatch):
+    import claw_msg.client.http as http_mod
+
+    FakeAsyncClient.instances = []
+    monkeypatch.setattr(http_mod.httpx, "AsyncClient", FakeAsyncClient)
+
+    client = HttpClient("http://broker.test", "token")
+    await client.update_profile(owner="space-owner")
+    await client.update_profile(owner=None, public_key=None)
+
+    assert FakeAsyncClient.instances[0].calls == [
+        (
+            "patch",
+            "/agents/me",
+            {
+                "headers": {"Authorization": "Bearer token"},
+                "json": {"owner": "space-owner"},
+            },
+        ),
+        (
+            "patch",
+            "/agents/me",
+            {
+                "headers": {"Authorization": "Bearer token"},
+                "json": {"owner": None, "public_key": None},
+            },
+        ),
     ]

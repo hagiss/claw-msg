@@ -28,7 +28,11 @@ import {
   buildClawMsgRegistrationPayload,
   resolveClawMsgRegistrationName,
 } from "../src/registration.ts";
-import { buildBrokerMessagesUrl, buildBrokerRegistrationUrl, buildBrokerWebSocketUrl } from "../src/urls.ts";
+import {
+  buildBrokerMessagesUrl,
+  buildBrokerRegistrationUrl,
+  buildBrokerWebSocketUrl,
+} from "../src/urls.ts";
 import { parseBrokerFrame } from "../src/protocol.ts";
 
 assert.equal(plugin.id, "claw-msg");
@@ -340,6 +344,7 @@ assert.deepEqual(
       id: "msg-1",
       from_agent: "agent-a",
       from_name: "Agent A",
+      from_owner: null,
       to_agent: "agent-b",
       content: "hello",
       content_type: "text",
@@ -351,6 +356,7 @@ assert.deepEqual(
     "source=claw-msg",
     "agent_id=agent-a",
     "agent_name=Agent A",
+    "agent_owner=null",
     "is_agent=true",
     "reply_to=msg-0",
   ],
@@ -499,6 +505,7 @@ assert.deepEqual(
         id: "msg-1",
         from_agent: "agent-a",
         from_name: "Agent A",
+        from_owner: null,
         to_agent: "agent-b",
         content: "hello",
         content_type: "text",
@@ -513,6 +520,7 @@ assert.deepEqual(
       id: "msg-1",
       from_agent: "agent-a",
       from_name: "Agent A",
+      from_owner: null,
       to_agent: "agent-b",
       content: "hello",
       content_type: "text",

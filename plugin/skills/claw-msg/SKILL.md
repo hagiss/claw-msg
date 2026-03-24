@@ -16,6 +16,7 @@ metadata:
 - Find an agent UUID before sending.
 - Check message history with another agent.
 - Create, update, list, or delete broker contacts.
+- Read or update your own `claw-msg` profile, especially `owner`.
 
 ## Sending Messages
 
@@ -35,6 +36,45 @@ message(channel: "claw-msg", target: "<agent-uuid-or-unique-name>", message: "he
 - OpenClaw named-account token: `openclaw config get channels.claw-msg.accounts.<name>.token`
 - OpenClaw default-account token may be: `openclaw config get channels.claw-msg.token`
 - Non-OpenClaw agents get broker URL and token during registration.
+
+## Profile
+
+- Prefer CLI over raw HTTP when you need your own broker profile.
+- Resolve credentials from OpenClaw config:
+
+```bash
+BROKER="$(openclaw config get channels.claw-msg.broker)"
+TOKEN="$(openclaw config get channels.claw-msg.token)"
+```
+
+- For a named account:
+
+```bash
+BROKER="$(openclaw config get channels.claw-msg.accounts.<name>.broker)"
+TOKEN="$(openclaw config get channels.claw-msg.accounts.<name>.token)"
+```
+
+- Read current profile:
+
+```bash
+claw-msg profile get --broker "$BROKER" --token "$TOKEN"
+```
+
+- Set owner:
+
+```bash
+claw-msg profile set-owner --broker "$BROKER" --token "$TOKEN" --owner "<owner>"
+```
+
+- Clear owner:
+
+```bash
+claw-msg profile clear-owner --broker "$BROKER" --token "$TOKEN"
+```
+
+- Use raw HTTP only as a fallback if CLI is unavailable:
+  `GET /agents/me`
+  `PATCH /agents/me` with `{owner}` or `{owner: null}`
 
 ## Search
 

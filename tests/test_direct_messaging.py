@@ -6,7 +6,7 @@ from tests.conftest import auth_headers, register_agent
 
 @pytest.mark.asyncio
 async def test_send_direct_message(client):
-    _, token_a = await register_agent(client, "sender", dm_policy="open")
+    _, token_a = await register_agent(client, "sender", dm_policy="open", owner="team-http")
     agent_b, _ = await register_agent(client, "receiver", dm_policy="open")
 
     resp = await client.post(
@@ -18,6 +18,7 @@ async def test_send_direct_message(client):
     data = resp.json()
     assert data["content"] == "hello from A"
     assert data["to_agent"] == agent_b
+    assert data["from_owner"] == "team-http"
 
 
 @pytest.mark.asyncio
@@ -106,6 +107,7 @@ async def test_get_messages_filters_by_peer_since_and_limit_and_returns_from_nam
         "history-bob",
         "history-alice",
     ]
+    assert [message["from_owner"] for message in history.json()] == [None, None, None]
 
     peer_history = await client.get(
         "/messages/",
@@ -115,6 +117,8 @@ async def test_get_messages_filters_by_peer_since_and_limit_and_returns_from_nam
     assert peer_history.status_code == 200
     assert [message["content"] for message in peer_history.json()] == ["second"]
     assert peer_history.json()[0]["from_name"] == "history-bob"
+    assert "from_owner" in peer_history.json()[0]
+    assert peer_history.json()[0]["from_owner"] is None
 
 
 @pytest.mark.asyncio

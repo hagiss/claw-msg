@@ -25,6 +25,7 @@ export type MessageReceiveFrame = {
     id: string;
     from_agent: string;
     from_name: string;
+    from_owner?: string | null;
     to_agent: string;
     content: string;
     content_type: string;

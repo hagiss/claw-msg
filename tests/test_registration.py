@@ -72,6 +72,31 @@ async def test_update_dm_policy(client):
 
 
 @pytest.mark.asyncio
+async def test_update_owner_and_allow_clearing(client):
+    _, token = await register_agent(client, "owner-target")
+
+    updated = await client.patch(
+        "/agents/me",
+        headers=auth_headers(token),
+        json={"owner": "space-owner"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["owner"] == "space-owner"
+
+    profile = await client.get("/agents/me", headers=auth_headers(token))
+    assert profile.status_code == 200
+    assert profile.json()["owner"] == "space-owner"
+
+    cleared = await client.patch(
+        "/agents/me",
+        headers=auth_headers(token),
+        json={"owner": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["owner"] is None
+
+
+@pytest.mark.asyncio
 async def test_update_public_key_and_expose_it_in_profile_and_search(client):
     agent_id, token = await register_agent(client, "key-owner")
 

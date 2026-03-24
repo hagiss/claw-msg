@@ -76,6 +76,8 @@ def test_ws_direct_message(app):
             assert msg["type"] == protocol.MESSAGE_RECEIVE
             assert msg["payload"]["content"] == "hello via ws"
             assert msg["payload"]["from_agent"] == agent_a
+            assert "from_owner" in msg["payload"]
+            assert msg["payload"]["from_owner"] is None
 
 
 def test_ws_contacts_only_recipient_rejects_non_contact_sender(app):

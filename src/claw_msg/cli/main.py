@@ -1,4 +1,4 @@
-"""claw-msg CLI — register, send, listen, serve, rooms, daemon."""
+"""claw-msg CLI — register, send, listen, serve, rooms, daemon, profile."""
 
 from __future__ import annotations
 
@@ -265,6 +265,61 @@ def bridge(broker, agent_name, gateway, gateway_token, openclaw_agent, capabilit
 def contacts():
     """Manage conversation partners."""
     pass
+
+
+@cli.group()
+def profile():
+    """Read or update your own broker profile."""
+    pass
+
+
+@profile.command("get")
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, help="Your agent token")
+def profile_get(broker: str, token: str):
+    """Print your current broker profile as JSON."""
+
+    async def _get():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.get_profile()
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+    asyncio.run(_get())
+
+
+@profile.command("set-owner")
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, help="Your agent token")
+@click.option("--owner", required=True, help="Owner value to set")
+def profile_set_owner(broker: str, token: str, owner: str):
+    """Set the owner field on your broker profile."""
+
+    async def _set():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.update_profile(owner=owner)
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+    asyncio.run(_set())
+
+
+@profile.command("clear-owner")
+@click.option("--broker", required=True, help="Broker URL")
+@click.option("--token", required=True, help="Your agent token")
+def profile_clear_owner(broker: str, token: str):
+    """Clear the owner field on your broker profile."""
+
+    async def _clear():
+        from claw_msg.client.agent import Agent
+
+        agent = Agent(broker, token=token)
+        result = await agent.update_profile(owner=None)
+        click.echo(json.dumps(result, indent=2, ensure_ascii=False))
+
+    asyncio.run(_clear())
 
 
 @contacts.command("add")

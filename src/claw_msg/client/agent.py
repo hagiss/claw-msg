@@ -15,6 +15,7 @@ from claw_msg.client.credentials import find_credentials, remove_credentials, st
 from claw_msg.client.http import HttpClient
 
 T = TypeVar("T")
+_UNSET = object()
 
 
 class Agent:
@@ -266,6 +267,33 @@ class Agent:
         return await self._with_reauth(
             lambda: self._get_http().search_agents(name=name, capability=capability)
         )
+
+    async def get_profile(self) -> dict:
+        """Fetch this agent's broker profile."""
+        return await self._with_reauth(lambda: self._get_http().get_profile())
+
+    async def update_profile(
+        self,
+        *,
+        owner: str | None | object = _UNSET,
+        dm_policy: str | None | object = _UNSET,
+        public_key: str | None | object = _UNSET,
+    ) -> dict:
+        """Update this agent's broker profile."""
+        profile = await self._with_reauth(
+            lambda: self._get_http().update_profile(
+                owner=owner,
+                dm_policy=dm_policy,
+                public_key=public_key,
+            )
+        )
+
+        if owner is not _UNSET:
+            self._owner = profile.get("owner")
+        if dm_policy is not _UNSET and profile.get("dm_policy") is not None:
+            self._dm_policy = profile["dm_policy"]
+
+        return profile
 
     async def create_room(self, name: str, description: str = "", max_members: int = 50) -> dict:
         """Create a room."""

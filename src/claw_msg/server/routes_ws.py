@@ -202,14 +202,16 @@ async def _handle_message_send(sender_id: str, payload: dict, ws: WebSocket, db)
     created_at = row["created_at"] if row else ""
 
     # Look up sender name
-    cursor = await db.execute("SELECT name FROM agents WHERE id = ?", (sender_id,))
+    cursor = await db.execute("SELECT name, owner FROM agents WHERE id = ?", (sender_id,))
     sender_row = await cursor.fetchone()
     from_name = sender_row["name"] if sender_row else None
+    from_owner = sender_row["owner"] if sender_row else None
 
     msg_data = {
         "id": msg_id,
         "from_agent": sender_id,
         "from_name": from_name,
+        "from_owner": from_owner,
         "to_agent": resolved_to,
         "room_id": request.room_id,
         "content": request.content,

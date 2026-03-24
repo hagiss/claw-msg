@@ -328,6 +328,104 @@ class FakeHttpClient:
         self.close_calls += 1
 
 
+class ProfileFakeHttpClient:
+    instances = []
+    get_profile_calls = []
+    update_profile_calls = []
+
+    def __init__(self, broker_url: str, token: str):
+        self.broker_url = broker_url
+        self.token = token
+        self.closed = False
+        ProfileFakeHttpClient.instances.append(self)
+
+    async def get_profile(self) -> dict:
+        ProfileFakeHttpClient.get_profile_calls.append({
+            "broker_url": self.broker_url,
+            "token": self.token,
+        })
+        return {
+            "id": "agent-1",
+            "name": "profile-agent",
+            "owner": None,
+            "dm_policy": "contacts_only",
+        }
+
+    async def update_profile(
+        self,
+        *,
+        owner=object(),
+        dm_policy=object(),
+        public_key=object(),
+    ) -> dict:
+        ProfileFakeHttpClient.update_profile_calls.append({
+            "broker_url": self.broker_url,
+            "token": self.token,
+            "owner": owner,
+            "dm_policy": dm_policy,
+            "public_key": public_key,
+        })
+        return {
+            "id": "agent-1",
+            "name": "profile-agent",
+            "owner": owner,
+            "dm_policy": "contacts_only",
+            "public_key": public_key,
+        }
+
+    async def close(self):
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_agent_get_and_update_profile(monkeypatch):
+    import claw_msg.client.agent as agent_mod
+
+    ProfileFakeHttpClient.instances = []
+    ProfileFakeHttpClient.get_profile_calls = []
+    ProfileFakeHttpClient.update_profile_calls = []
+    monkeypatch.setattr(agent_mod, "HttpClient", ProfileFakeHttpClient)
+
+    agent = Agent(
+        "http://broker.test",
+        name="profile-agent",
+        token="token-1",
+        agent_id="agent-1",
+    )
+
+    profile = await agent.get_profile()
+    assert profile["owner"] is None
+
+    updated = await agent.update_profile(owner="space-owner")
+    assert updated["owner"] == "space-owner"
+    assert agent._owner == "space-owner"
+
+    cleared = await agent.update_profile(owner=None)
+    assert cleared["owner"] is None
+    assert agent._owner is None
+
+    assert ProfileFakeHttpClient.get_profile_calls == [{
+        "broker_url": "http://broker.test",
+        "token": "token-1",
+    }]
+    assert ProfileFakeHttpClient.update_profile_calls == [
+        {
+            "broker_url": "http://broker.test",
+            "token": "token-1",
+            "owner": "space-owner",
+            "dm_policy": agent_mod._UNSET,
+            "public_key": agent_mod._UNSET,
+        },
+        {
+            "broker_url": "http://broker.test",
+            "token": "token-1",
+            "owner": None,
+            "dm_policy": agent_mod._UNSET,
+            "public_key": agent_mod._UNSET,
+        },
+    ]
+
+
 class SequencedMessageHttpClient(FakeHttpClient):
     def __init__(self, sent_response: dict, message_batches: list[list[dict]]):
         super().__init__(sent_response)

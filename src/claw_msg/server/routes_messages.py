@@ -69,14 +69,16 @@ async def send_message(
     await db.commit()
 
     # Look up sender name
-    cursor = await db.execute("SELECT name FROM agents WHERE id = ?", (agent_id,))
+    cursor = await db.execute("SELECT name, owner FROM agents WHERE id = ?", (agent_id,))
     sender_row = await cursor.fetchone()
     from_name = sender_row["name"] if sender_row else None
+    from_owner = sender_row["owner"] if sender_row else None
 
     msg_data = {
         "id": msg_id,
         "from_agent": agent_id,
         "from_name": from_name,
+        "from_owner": from_owner,
         "to_agent": resolved_to,
         "room_id": req.room_id,
         "content": req.content,
@@ -137,6 +139,7 @@ async def get_messages(
                m.id,
                m.from_agent,
                sender.name AS from_name,
+               sender.owner AS from_owner,
                m.to_agent,
                m.content,
                m.content_type,

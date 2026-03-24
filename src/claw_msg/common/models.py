@@ -64,6 +64,7 @@ class AgentProfile(BaseModel):
 
 
 class AgentUpdateRequest(BaseModel):
+    owner: str | None = None
     dm_policy: DMPolicy | None = None
     public_key: str | None = None
 
@@ -80,6 +81,7 @@ class MessageResponse(BaseModel):
     id: str
     from_agent: str
     from_name: str | None = None
+    from_owner: str | None = None
     to_agent: str | None = None
     room_id: str | None = None
     content: str
@@ -92,6 +94,7 @@ class MessageHistoryResponse(BaseModel):
     id: str
     from_agent: str
     from_name: str | None = None
+    from_owner: str | None = None
     to_agent: str | None = None
     content: str
     content_type: str = "text/plain"

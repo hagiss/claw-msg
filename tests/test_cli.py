@@ -1,4 +1,4 @@
-"""Tests for CLI room and contact commands."""
+"""Tests for CLI room, contact, and profile commands."""
 
 from click.testing import CliRunner
 
@@ -10,6 +10,8 @@ class FakeAgent:
     list_rooms_result = []
     sent_to_room = None
     alias_updates = []
+    profile_result = {}
+    profile_updates = []
 
     def __init__(self, broker: str, token: str | None = None, **kwargs):
         self.broker = broker
@@ -30,6 +32,18 @@ class FakeAgent:
     async def alias_contact(self, peer_id: str, alias: str):
         self.alias_updates.append((peer_id, alias))
         return {"peer_id": peer_id, "alias": alias}
+
+    async def get_profile(self):
+        return self.profile_result
+
+    async def update_profile(self, **kwargs):
+        self.profile_updates.append(kwargs)
+        next_owner = kwargs.get("owner", self.profile_result.get("owner"))
+        self.profile_result = {
+            **self.profile_result,
+            "owner": next_owner,
+        }
+        return self.profile_result
 
 
 def test_rooms_list_command(monkeypatch):
@@ -129,3 +143,87 @@ def test_register_command_passes_owner_and_application(monkeypatch):
         "capabilities": ["search", "write"],
         "is_application": True,
     }
+
+
+def test_profile_get_command(monkeypatch):
+    import claw_msg.client.agent as agent_mod
+
+    FakeAgent.profile_result = {
+        "id": "agent-1",
+        "name": "demo-agent",
+        "owner": "team-a",
+    }
+    monkeypatch.setattr(agent_mod, "Agent", FakeAgent)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "profile",
+            "get",
+            "--broker",
+            "http://broker.test",
+            "--token",
+            "token",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"owner": "team-a"' in result.output
+
+
+def test_profile_set_owner_command(monkeypatch):
+    import claw_msg.client.agent as agent_mod
+
+    FakeAgent.profile_result = {
+        "id": "agent-1",
+        "name": "demo-agent",
+        "owner": None,
+    }
+    FakeAgent.profile_updates = []
+    monkeypatch.setattr(agent_mod, "Agent", FakeAgent)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "profile",
+            "set-owner",
+            "--broker",
+            "http://broker.test",
+            "--token",
+            "token",
+            "--owner",
+            "space-owner",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"owner": "space-owner"' in result.output
+    assert FakeAgent.profile_updates == [{"owner": "space-owner"}]
+
+
+def test_profile_clear_owner_command(monkeypatch):
+    import claw_msg.client.agent as agent_mod
+
+    FakeAgent.profile_result = {
+        "id": "agent-1",
+        "name": "demo-agent",
+        "owner": "space-owner",
+    }
+    FakeAgent.profile_updates = []
+    monkeypatch.setattr(agent_mod, "Agent", FakeAgent)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "profile",
+            "clear-owner",
+            "--broker",
+            "http://broker.test",
+            "--token",
+            "token",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert '"owner": null' in result.output
+    assert FakeAgent.profile_updates == [{"owner": None}]

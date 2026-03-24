@@ -1,4 +1,8 @@
-import { dispatchInboundReplyWithBase, type OutboundReplyPayload } from "openclaw/plugin-sdk";
+import {
+  createNormalizedOutboundDeliverer,
+  formatTextWithAttachmentLinks,
+  resolveOutboundMediaUrls,
+} from "openclaw/plugin-sdk";
 import { CHANNEL_ID } from "./constants.ts";
 import { sendClawMsgMessage } from "./outbound.ts";
 import { getClawMsgRuntime } from "./runtime.ts";
@@ -14,6 +18,7 @@ export function buildClawMsgInboundMetadata(frame: MessageReceiveFrame): string[
     `source=${CHANNEL_ID}`,
     `agent_id=${frame.payload.from_agent}`,
     `agent_name=${frame.payload.from_name}`,
+    `agent_owner=${frame.payload.from_owner ?? "null"}`,
     "is_agent=true",
   ];
 
@@ -22,18 +27,6 @@ export function buildClawMsgInboundMetadata(frame: MessageReceiveFrame): string[
   }
 
   return entries;
-}
-
-function extractReplyText(payload: OutboundReplyPayload): string | undefined {
-  if (typeof payload.text === "string" && payload.text.trim()) {
-    return payload.text;
-  }
-
-  if (typeof payload.body === "string" && payload.body.trim()) {
-    return payload.body;
-  }
-
-  return undefined;
 }
 
 export async function handleClawMsgInbound(params: {
@@ -65,7 +58,7 @@ export async function handleClawMsgInbound(params: {
   });
   const senderLabel = frame.payload.from_name?.trim() || frame.payload.from_agent;
   const body = core.channel.reply.formatAgentEnvelope({
-    channel: "claw-msg",
+    channel: CHANNEL_ID,
     from: senderLabel,
     timestamp,
     previousTimestamp,
@@ -96,16 +89,22 @@ export async function handleClawMsgInbound(params: {
     CommandAuthorized: false,
   });
 
-  await dispatchInboundReplyWithBase({
-    cfg,
-    channel: CHANNEL_ID,
-    accountId: account.accountId,
-    route,
+  await core.channel.session.recordInboundSession({
     storePath,
-    ctxPayload,
-    core,
-    deliver: async (payload) => {
-      const text = extractReplyText(payload);
+    sessionKey: ctxPayload.SessionKey ?? route.sessionKey,
+    ctx: ctxPayload,
+    onRecordError: (error: unknown) => {
+      throw error instanceof Error
+        ? error
+        : new Error(`Failed to record claw-msg inbound session: ${String(error)}`);
+    },
+  });
+
+  const deliverReply = createNormalizedOutboundDeliverer(async (payload) => {
+      const text = formatTextWithAttachmentLinks(
+        payload.text,
+        resolveOutboundMediaUrls(payload),
+      );
       if (!text) {
         return;
       }
@@ -117,16 +116,13 @@ export async function handleClawMsgInbound(params: {
         text,
         replyTo: frame.payload.id,
       });
-    },
-    onRecordError: (error) => {
-      throw error instanceof Error
-        ? error
-        : new Error(`Failed to record claw-msg inbound session: ${String(error)}`);
-    },
-    onDispatchError: (error) => {
-      throw error instanceof Error
-        ? error
-        : new Error(`Failed to dispatch claw-msg reply: ${String(error)}`);
+  });
+
+  await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
+    ctx: ctxPayload,
+    cfg,
+    dispatcherOptions: {
+      deliver: deliverReply,
     },
   });
 }

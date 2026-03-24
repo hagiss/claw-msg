@@ -29,7 +29,9 @@ async def test_enqueue_and_flush(client, app):
     # Flush
     messages = await flush_for_agent(agent_b, app.state.db)
     assert len(messages) >= 1
-    assert any(m["content"] == "offline msg" for m in messages)
+    matching = next(m for m in messages if m["content"] == "offline msg")
+    assert "from_owner" in matching
+    assert matching["from_owner"] is None
 
 
 @pytest.mark.asyncio

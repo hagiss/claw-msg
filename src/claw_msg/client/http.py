@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import httpx
 
+_UNSET = object()
+
 
 class HttpClient:
     """Thin wrapper around httpx for authenticated requests to the broker."""
@@ -74,6 +76,32 @@ class HttpClient:
 
     async def get_profile(self) -> dict:
         resp = await self._client.get("/agents/me", headers=self._headers)
+        resp.raise_for_status()
+        return resp.json()
+
+    async def update_profile(
+        self,
+        *,
+        owner: str | None | object = _UNSET,
+        dm_policy: str | None | object = _UNSET,
+        public_key: str | None | object = _UNSET,
+    ) -> dict:
+        payload: dict[str, str | None] = {}
+        if owner is not _UNSET:
+            payload["owner"] = owner
+        if dm_policy is not _UNSET:
+            payload["dm_policy"] = dm_policy
+        if public_key is not _UNSET:
+            payload["public_key"] = public_key
+
+        if not payload:
+            return await self.get_profile()
+
+        resp = await self._client.patch(
+            "/agents/me",
+            headers=self._headers,
+            json=payload,
+        )
         resp.raise_for_status()
         return resp.json()
 
