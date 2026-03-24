@@ -72,6 +72,24 @@ async def test_update_dm_policy(client):
 
 
 @pytest.mark.asyncio
+async def test_update_dm_policy_preserves_owner_when_owner_is_omitted(client):
+    _, token = await register_agent(client, "policy-owner-target", owner="owner-a")
+
+    resp = await client.patch(
+        "/agents/me",
+        headers=auth_headers(token),
+        json={"dm_policy": "contacts_only"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["dm_policy"] == "contacts_only"
+    assert resp.json()["owner"] == "owner-a"
+
+    profile = await client.get("/agents/me", headers=auth_headers(token))
+    assert profile.status_code == 200
+    assert profile.json()["owner"] == "owner-a"
+
+
+@pytest.mark.asyncio
 async def test_update_owner_and_allow_clearing(client):
     _, token = await register_agent(client, "owner-target")
 
