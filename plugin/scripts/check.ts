@@ -10,6 +10,14 @@ import {
   buildClawMsgInboundMetadata,
   normalizeClawMsgSenderId,
 } from "../src/inbound.ts";
+import {
+  buildClawMsgDeliveryNowPrependContext,
+  buildClawMsgSessionAppendSystemContext,
+  resolveClawMsgBeforeToolCall,
+  resolveClawMsgPromptPrependContext,
+  registerClawMsgPromptHooks,
+  resolveClawMsgPromptAppendSystemContext,
+} from "../src/hooks.ts";
 import { startClawMsgMonitor } from "../src/monitor.ts";
 import {
   buildClawMsgHttpPayload,
@@ -28,8 +36,200 @@ assert.equal(plugin.name, "claw-msg");
 assert.equal(typeof plugin.register, "function");
 assert.equal(clawMsgPlugin.id, "claw-msg");
 assert.equal(typeof startClawMsgMonitor, "function");
+assert.equal(typeof registerClawMsgPromptHooks, "function");
 assert.equal(normalizeClawMsgSenderId("agent-a"), "claw-msg:agent-a");
 assert.equal(normalizeClawMsgTarget("claw-msg:agent-a"), "agent-a");
+
+const promptContext = buildClawMsgSessionAppendSystemContext("main");
+assert.match(promptContext, /sessions_list/);
+assert.match(promptContext, /message\(action: send\)/);
+assert.match(promptContext, /deliveryContext\.to/);
+assert.match(promptContext, /Do not use sessions_send/);
+assert.match(promptContext, /key starts with "agent:main:"/);
+assert.match(promptContext, /without activeMinutes or other recency filters/);
+assert.match(promptContext, /never use another agent's session/);
+assert.match(promptContext, /Prefer your own direct user-facing session/);
+assert.doesNotMatch(promptContext, /Prefix the message with \[DELIVER_TO_USER\]/);
+
+const deliveryNowContext = buildClawMsgDeliveryNowPrependContext();
+assert.match(deliveryNowContext, /latest peer message indicates this conversation is wrapping up now/i);
+assert.equal(
+  resolveClawMsgPromptPrependContext({
+    channelId: "telegram",
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "좋은 논의였어. 기록 완료." }],
+      },
+    ],
+  }),
+  undefined,
+);
+assert.equal(
+  resolveClawMsgPromptPrependContext({
+    channelId: "claw-msg",
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "계속 얘기하자." }],
+      },
+    ],
+  }),
+  undefined,
+);
+assert.equal(
+  resolveClawMsgPromptPrependContext({
+    channelId: "claw-msg",
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "text", text: "이 정도면 정리된 것 같아. 좋은 논의였어." }],
+      },
+    ],
+  }),
+  deliveryNowContext,
+);
+
+assert.deepEqual(
+  resolveClawMsgBeforeToolCall({
+    sessionKey: "agent:poly:claw-msg:direct:abcd",
+    toolName: "sessions_list",
+    toolParams: {
+      activeMinutes: 60,
+      messageLimit: 1,
+    },
+  }),
+  {
+    params: {
+      messageLimit: 1,
+    },
+  },
+);
+assert.equal(
+  resolveClawMsgBeforeToolCall({
+    sessionKey: "agent:poly:telegram:direct:abcd",
+    toolName: "sessions_list",
+    toolParams: {
+      activeMinutes: 60,
+      messageLimit: 1,
+    },
+  }),
+  undefined,
+);
+assert.equal(
+  resolveClawMsgBeforeToolCall({
+    sessionKey: "agent:poly:claw-msg:direct:abcd",
+    toolName: "message",
+    toolParams: {
+      action: "send",
+    },
+  }),
+  undefined,
+);
+assert.equal(
+  resolveClawMsgPromptAppendSystemContext({
+    agentId: "main",
+    channelId: "telegram",
+  }),
+  undefined,
+);
+assert.equal(
+  resolveClawMsgPromptAppendSystemContext({
+    agentId: "main",
+    channelId: "claw-msg",
+  }),
+  promptContext,
+);
+
+let beforePromptBuildHandler:
+  | ((event: { messages?: unknown[] }, ctx: { agentId: string; channelId?: string | null }) => Promise<{
+      appendSystemContext: string;
+      prependContext?: string;
+    } | void>)
+  | undefined;
+let beforeToolCallHandler:
+  | ((event: { toolName: string; params: Record<string, unknown> }, ctx: { sessionKey?: string | null }) => Promise<{
+      params: Record<string, unknown>;
+    } | void>)
+  | undefined;
+registerClawMsgPromptHooks({
+  on: (event, handler) => {
+    if (event === "before_prompt_build") {
+      beforePromptBuildHandler = handler as typeof beforePromptBuildHandler;
+    }
+    if (event === "before_tool_call") {
+      beforeToolCallHandler = handler as typeof beforeToolCallHandler;
+    }
+  },
+} as never);
+assert.ok(beforePromptBuildHandler);
+assert.deepEqual(
+  await beforePromptBuildHandler?.(
+    {
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "좋은 논의였어. 기록 완료." }],
+        },
+      ],
+    },
+    {
+      agentId: "main",
+      channelId: "claw-msg",
+    },
+  ),
+  {
+    appendSystemContext: promptContext,
+    prependContext: deliveryNowContext,
+  },
+);
+assert.equal(
+  await beforePromptBuildHandler?.(
+    {
+      messages: [],
+    },
+    {
+      agentId: "main",
+      channelId: "telegram",
+    },
+  ),
+  undefined,
+);
+assert.ok(beforeToolCallHandler);
+assert.deepEqual(
+  await beforeToolCallHandler?.(
+    {
+      toolName: "sessions_list",
+      params: {
+        activeMinutes: 60,
+        messageLimit: 1,
+      },
+    },
+    {
+      sessionKey: "agent:main:claw-msg:direct:test",
+    },
+  ),
+  {
+    params: {
+      messageLimit: 1,
+    },
+  },
+);
+assert.equal(
+  await beforeToolCallHandler?.(
+    {
+      toolName: "sessions_list",
+      params: {
+        activeMinutes: 60,
+        messageLimit: 1,
+      },
+    },
+    {
+      sessionKey: "agent:main:telegram:direct:test",
+    },
+  ),
+  undefined,
+);
 
 const parsed = ClawMsgConfigSchema.parse({
   name: "relay-a",
