@@ -48,9 +48,13 @@ class BulkRemoveRequest(BaseModel):
 def _require_admin(x_admin_key: str | None = Header(None)) -> str:
     if not ADMIN_KEY:
         raise HTTPException(status_code=501, detail="Admin API not configured")
-    if not x_admin_key or x_admin_key != ADMIN_KEY:
+    if not has_valid_admin_key(x_admin_key):
         raise HTTPException(status_code=403, detail="Invalid admin key")
     return x_admin_key
+
+
+def has_valid_admin_key(x_admin_key: str | None) -> bool:
+    return bool(ADMIN_KEY and x_admin_key and x_admin_key == ADMIN_KEY)
 
 
 # ── Helpers ──

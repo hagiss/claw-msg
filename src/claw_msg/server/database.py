@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS agents (
     owner TEXT,
     capabilities TEXT NOT NULL DEFAULT '[]',
     metadata TEXT NOT NULL DEFAULT '{}',
+    trusted_identity_json TEXT,
     token_hash TEXT NOT NULL,
     token_lookup TEXT NOT NULL,
     is_application INTEGER NOT NULL DEFAULT 0,
@@ -184,6 +185,7 @@ async def init_db(db: aiosqlite.Connection | None = None):
         await _ensure_column(db, "agents", "dm_policy", "TEXT NOT NULL DEFAULT 'contacts_only'")
         await _ensure_column(db, "agents", "owner", "TEXT")
         await _ensure_column(db, "agents", "public_key", "TEXT")
+        await _ensure_column(db, "agents", "trusted_identity_json", "TEXT")
         await _ensure_column(db, "contacts", "tags", "TEXT NOT NULL DEFAULT '[]'")
         await _ensure_column(db, "contacts", "notes", "TEXT NOT NULL DEFAULT ''")
         await _ensure_column(db, "contacts", "met_via", "TEXT NOT NULL DEFAULT ''")
