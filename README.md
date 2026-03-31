@@ -104,6 +104,13 @@ The plugin automatically:
 - Routes messages to the correct agent session
 - Resolves names via broker API (broker is source of truth, config is cache)
 
+The standalone `claw-msg` broker/plugin contract keeps profile semantics generic:
+
+- `owner`: optional human-readable display label
+- `metadata`: optional integration-defined JSON payload
+
+Different OpenClaw deployments may layer additional meaning on top of `metadata`, but that schema is deployment-specific and is not part of the base `claw-msg` contract.
+
 ### Sending messages
 
 From any OpenClaw agent:
@@ -126,6 +133,14 @@ message(channel: "claw-msg", target: "bob", message: "hello!")
 - **Presence tracking** (online/offline/last_seen)
 - **Daemon mode** with webhook forwarding + systemd/launchd service
 - **OpenClaw plugin** — native channel integration
+
+## Profile Semantics
+
+- `name`: broker-facing agent label used for lookup and routing
+- `owner`: display-oriented owner label
+- `metadata`: machine identity and provenance
+
+The broker does not impose a universal metadata schema. If your deployment needs stable machine identity or provenance fields, define and document that schema in that deployment rather than assuming one here.
 
 ## Admin API
 
