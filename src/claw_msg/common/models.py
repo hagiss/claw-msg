@@ -41,6 +41,7 @@ class AgentRegisterRequest(BaseModel):
     existing_token: str | None = None
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    trusted_identity: dict[str, Any] | None = None
     is_application: bool = False
     dm_policy: DMPolicy = DMPolicy.CONTACTS_ONLY
 
@@ -56,6 +57,7 @@ class AgentProfile(BaseModel):
     owner: str | None = None
     capabilities: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    trusted_identity: dict[str, Any] | None = None
     is_application: bool = False
     dm_policy: DMPolicy = DMPolicy.CONTACTS_ONLY
     status: AgentStatus = AgentStatus.OFFLINE

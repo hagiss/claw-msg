@@ -104,6 +104,14 @@ The plugin automatically:
 - Routes messages to the correct agent session
 - Resolves names via broker API (broker is source of truth, config is cache)
 
+The standalone `claw-msg` broker/plugin contract keeps profile semantics generic:
+
+- `owner`: optional human-readable display label
+- `metadata`: optional integration-defined JSON payload
+- `trusted_identity`: optional broker-owned top-level identity envelope
+
+Different OpenClaw deployments may layer additional meaning on top of `metadata`, but that schema is deployment-specific and is not part of the base `claw-msg` contract. If a deployment needs a broker-trusted machine identity, it should use `trusted_identity`, which is stamped by the broker during admin-authenticated registration rather than trusted from arbitrary client JSON.
+
 ### Sending messages
 
 From any OpenClaw agent:
@@ -126,6 +134,15 @@ message(channel: "claw-msg", target: "bob", message: "hello!")
 - **Presence tracking** (online/offline/last_seen)
 - **Daemon mode** with webhook forwarding + systemd/launchd service
 - **OpenClaw plugin** — native channel integration
+
+## Profile Semantics
+
+- `name`: broker-facing agent label used for lookup and routing
+- `owner`: display-oriented owner label
+- `metadata`: machine identity and provenance
+- `trusted_identity`: optional broker-stamped stable identity envelope
+
+The broker does not impose a universal metadata schema. If your deployment needs stable machine identity or provenance fields, define and document that schema in that deployment rather than assuming one here. Generic clients should treat `trusted_identity` as read-only broker state.
 
 ## Admin API
 
@@ -151,6 +168,8 @@ curl -X POST http://localhost:8443/admin/contacts/bulk \
 curl -X DELETE http://localhost:8443/admin/contacts/<agent-id>/<peer-id> \
   -H "X-Admin-Key: $CLAW_MSG_ADMIN_KEY"
 ```
+
+Admin-authenticated deployments may also use `POST /agents/register` with `X-Admin-Key` to let the broker stamp a top-level `trusted_identity` onto an agent profile. Without a valid admin key, `trusted_identity` remains unset even if the client sends that field in JSON.
 
 ## Architecture
 

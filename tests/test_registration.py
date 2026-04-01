@@ -3,6 +3,8 @@
 import pytest
 from tests.conftest import auth_headers, register_agent
 
+ADMIN_KEY = "test-admin-secret-key"
+
 
 @pytest.mark.asyncio
 async def test_register_agent(client):
@@ -233,3 +235,90 @@ async def test_invalid_token(client):
 async def test_missing_auth(client):
     resp = await client.get("/agents/me")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_register_with_admin_key_stamps_top_level_trusted_identity(client, monkeypatch):
+    import claw_msg.server.routes_admin as admin_mod
+
+    monkeypatch.setattr(admin_mod, "ADMIN_KEY", ADMIN_KEY)
+
+    _, token = await register_agent(
+        client,
+        "trusted-kakao-agent",
+        headers={"X-Admin-Key": ADMIN_KEY},
+        trusted_identity={
+            "kind": "kakao_peer",
+            "accountId": "default",
+            "peerId": "G4aDvqWUGjVm",
+            "openclawAgentId": "kakao-3ca63a7b4984",
+        },
+    )
+
+    profile = await client.get("/agents/me", headers=auth_headers(token))
+    assert profile.status_code == 200
+    assert profile.json()["trusted_identity"] == {
+        "issuer": "openclaw-admin",
+        "kind": "kakao_peer",
+        "accountId": "default",
+        "peerId": "G4aDvqWUGjVm",
+        "openclawAgentId": "kakao-3ca63a7b4984",
+    }
+
+
+@pytest.mark.asyncio
+async def test_register_ignores_client_supplied_trusted_identity_without_admin_key(client, monkeypatch):
+    import claw_msg.server.routes_admin as admin_mod
+
+    monkeypatch.setattr(admin_mod, "ADMIN_KEY", ADMIN_KEY)
+
+    _, token = await register_agent(
+        client,
+        "untrusted-kakao-agent",
+        trusted_identity={
+            "kind": "kakao_peer",
+            "accountId": "default",
+            "peerId": "G4aDvqWUGjVm",
+            "openclawAgentId": "kakao-3ca63a7b4984",
+        },
+    )
+
+    profile = await client.get("/agents/me", headers=auth_headers(token))
+    assert profile.status_code == 200
+    assert profile.json()["trusted_identity"] is None
+
+
+@pytest.mark.asyncio
+async def test_reregister_rejects_trusted_identity_change(client, monkeypatch):
+    import claw_msg.server.routes_admin as admin_mod
+
+    monkeypatch.setattr(admin_mod, "ADMIN_KEY", ADMIN_KEY)
+
+    _, token = await register_agent(
+        client,
+        "trusted-reuse",
+        headers={"X-Admin-Key": ADMIN_KEY},
+        trusted_identity={
+            "kind": "kakao_peer",
+            "accountId": "default",
+            "peerId": "peer-1",
+            "openclawAgentId": "kakao-agent-1",
+        },
+    )
+
+    resp = await client.post(
+        "/agents/register",
+        headers={"X-Admin-Key": ADMIN_KEY},
+        json={
+            "name": "trusted-reuse",
+            "existing_token": token,
+            "trusted_identity": {
+                "kind": "kakao_peer",
+                "accountId": "default",
+                "peerId": "peer-2",
+                "openclawAgentId": "kakao-agent-2",
+            },
+        },
+    )
+
+    assert resp.status_code == 409
